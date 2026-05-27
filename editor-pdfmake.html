@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 
 <head>
     <meta charset="utf-8">
@@ -25,6 +25,9 @@
             <button class="primary" onclick="previewPDF()">
                 <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>Preview PDF
             </button>
+            <button id="livePreviewBtn" onclick="toggleLivePreview()">
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>Live Preview
+            </button>
             <button onclick="downloadPDF()">
                 <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>Download PDF
             </button>
@@ -35,32 +38,84 @@
             <button onclick="importJSON()">
                 <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Import JSON
             </button>
+            <button onclick="viewJSON()">
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>View JSON
+            </button>
+            <div id="alignToolbar" style="display:none; align-items:center; gap:6px; background:#1e1e2e; border:1px solid #313244; padding:2px 8px; border-radius:6px; margin-left:6px;">
+                <span style="font-size:11px; color:#a6adc8; margin-right:4px;">Align:</span>
+                <button onclick="alignSelected('left')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Left">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="3"></line><rect x="8" y="5" width="12" height="4" rx="1"></rect><rect x="8" y="15" width="8" height="4" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('center')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Center">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="21" x2="12" y2="3"></line><rect x="6" y="5" width="12" height="4" rx="1"></rect><rect x="8" y="15" width="8" height="4" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('right')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Right">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="20" y1="21" x2="20" y2="3"></line><rect x="4" y="5" width="12" height="4" rx="1"></rect><rect x="8" y="15" width="12" height="4" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('top')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Top">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="4" x2="21" y2="4"></line><rect x="5" y="8" width="4" height="12" rx="1"></rect><rect x="15" y="8" width="4" height="8" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('middle')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Middle">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><rect x="5" y="6" width="4" height="12" rx="1"></rect><rect x="15" y="8" width="4" height="8" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('bottom')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Align Bottom">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="20" x2="21" y2="20"></line><rect x="5" y="4" width="4" height="12" rx="1"></rect><rect x="15" y="8" width="4" height="8" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('distributeH')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Distribute Horizontally">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="3" x2="4" y2="21"></line><line x1="20" y1="3" x2="20" y2="21"></line><rect x="9" y="8" width="6" height="8" rx="1"></rect></svg>
+                </button>
+                <button onclick="alignSelected('distributeV')" style="padding:4px 6px; font-size:11px; display:flex; align-items:center; gap:4px; border:1px solid #585b70; background:#313244; color:#cdd6f4; border-radius:4px; cursor:pointer;" title="Distribute Vertically">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="4" x2="21" y2="4"></line><line x1="3" y1="20" x2="21" y2="20"></line><rect x="8" y="9" width="8" height="6" rx="1"></rect></svg>
+                </button>
+            </div>
         </div>
 
         <!-- Palette -->
         <div class="palette">
-            <h3>Thêm Element</h3>
+            <h3>Add Element</h3>
             <div class="pal-item" onclick="addElement('text')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg></span> Text</div>
             <div class="pal-item" onclick="addElement('heading')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="4" x2="4" y2="20"></line><line x1="20" y1="4" x2="20" y2="20"></line><line x1="4" y1="12" x2="20" y2="12"></line></svg></span> Heading</div>
-            <div class="pal-item" onclick="addElement('shape')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"></rect><circle cx="15" cy="15" r="6"></circle></svg></span> Hình học</div>
+            <div class="pal-item" onclick="addElement('shape')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="12" height="12" rx="2"></rect><circle cx="15" cy="15" r="6"></circle></svg></span> Shape</div>
             <div class="pal-item" onclick="addElement('table')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="13" height="13" rx="1.5"></rect><line x1="3" y1="7" x2="16" y2="7"></line><line x1="3" y1="12" x2="16" y2="12"></line><line x1="8" y1="3" x2="8" y2="16"></line></svg></span> Table</div>
-            <div class="pal-item" onclick="addElement('columns')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="18" rx="1"></rect><rect x="15" y="3" width="6" height="18" rx="1"></rect></svg></span> 2 Cột</div>
+            <div class="pal-item" onclick="addElement('columns')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="18" rx="1"></rect><rect x="15" y="3" width="6" height="18" rx="1"></rect></svg></span> 2 Columns</div>
             <div class="pal-item" onclick="addElement('var')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"></path><path d="M20 5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4"></path><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg></span> Variable</div>
-            <div class="pal-item" onclick="addElement('image')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> Ảnh</div>
+            <div class="pal-item" onclick="addElement('image')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> Image</div>
             <div class="pal-item" onclick="addElement('panel')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg></span> Panel</div>
-            <div class="pal-item" onclick="addElement('pagebreak')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="9.8" y1="8.2" x2="22" y2="20"></line><line x1="9.8" y1="15.8" x2="22" y2="4"></line></svg></span> Ngắt trang</div>
+            <div class="pal-item" onclick="addElement('pagebreak')"><span class="icon"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="9.8" y1="8.2" x2="22" y2="20"></line><line x1="9.8" y1="15.8" x2="22" y2="4"></line></svg></span> Page Break</div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 0 6px;">
                 <h3 style="margin:0;">Variables</h3>
-                <button onclick="addNewVar()" onmouseover="this.style.background='#45475a';this.style.borderColor='#585b70';" onmouseout="this.style.background='#313244';this.style.borderColor='#45475a';" style="background:#313244; border:1px solid #45475a; color:#89b4fa; border-radius:4px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; transition: background 0.2s, border-color 0.2s;" title="Thêm biến mới">
+                <button onclick="addNewVar()" onmouseover="this.style.background='#45475a';this.style.borderColor='#585b70';" onmouseout="this.style.background='#313244';this.style.borderColor='#45475a';" style="background:#313244; border:1px solid #45475a; color:#89b4fa; border-radius:4px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0; transition: background 0.2s, border-color 0.2s;" title="Add new variable">
                     <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
             </div>
             <div id="varList"></div>
         </div>
 
-        <!-- Canvas -->
+        <!-- Canvas & Live Preview Split Pane -->
         <div class="canvas-wrap" onclick="deselect(event)">
-            <div class="paper" id="paper"></div>
+            <div class="pane canvas-pane">
+                <div class="paper" id="paper"></div>
+            </div>
+            <div class="pane-resizer" id="previewResizer" style="display: none;"></div>
+            <div class="pane preview-pane" style="display: none; position: relative;">
+                <div class="preview-toolbar" style="display:flex; align-items:center; justify-content:space-between; background:#181825; border-bottom:1px solid #313244; padding:0 12px; height:34px; flex-shrink:0; width:100%; box-sizing:border-box;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-weight:600; color:#89b4fa; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Live PDF Preview</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:#a6adc8; cursor:pointer; user-select:none; margin:0;">
+                            <input type="checkbox" id="livePreviewAutoUpdate" checked style="width:12px; height:12px; cursor:pointer; margin:0; flex:none;">
+                            Auto Update
+                        </label>
+                        <button onclick="updateLivePreview(true)" style="width:auto; margin:0; padding:2px 8px; background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Refresh PDF preview">
+                            <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:middle;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+                <iframe id="livePreviewFrame1" src="about:blank" style="position: absolute; top: 34px; left: 0; width: 100%; height: calc(100% - 34px); border: none; background: #fff; z-index: 2; opacity: 1; pointer-events: auto; transition: opacity 0.15s;"></iframe>
+                <iframe id="livePreviewFrame2" src="about:blank" style="position: absolute; top: 34px; left: 0; width: 100%; height: calc(100% - 34px); border: none; background: #fff; z-index: 1; opacity: 0; pointer-events: none; transition: opacity 0.15s;"></iframe>
+            </div>
         </div>
 
         <!-- Resizer -->
@@ -70,10 +125,10 @@
         <div class="props" id="propsPanel">
             <div class="props-section">
                 <h3>Properties</h3>
-                <div id="propsContent" style="color:#6c7086;">Click element để sửa</div>
+                <div id="propsContent" style="color:#6c7086;">Click element to edit</div>
             </div>
             <div class="outline-section">
-                <h3>Danh sách Element</h3>
+                <h3>Elements Outline</h3>
                 <div id="elementsOutline" style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
                 </div>
             </div>
@@ -98,7 +153,7 @@
     <div class="modal-bg" id="varModal">
         <div class="modal" style="width: 400px; height: auto; max-height: 90vh; align-self: center;">
             <div class="mhead">
-                <span style="font-weight:600" id="varModalTitle">Thêm Biến Mới</span>
+                <span style="font-weight:600" id="varModalTitle">Add New Variable</span>
                 <button onclick="closeVarModal()"
                     style="background:none;border:none;color:#cdd6f4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -106,53 +161,101 @@
             </div>
             <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
                 <div class="prop-row">
-                    <label style="width: 90px; font-size: 12px; color: #a6adc8;">Tên biến:</label>
-                    <input type="text" id="varNameInput" placeholder="VD: bn_ngay_sinh" style="flex: 1;">
+                    <label style="width: 90px; font-size: 12px; color: #a6adc8;">Variable name:</label>
+                    <input type="text" id="varNameInput" placeholder="e.g. pat_birthdate" style="flex: 1;">
                 </div>
                 <div class="prop-row">
-                    <label style="width: 90px; font-size: 12px; color: #a6adc8;">Loại data:</label>
+                    <label style="width: 90px; font-size: 12px; color: #a6adc8;">Data type:</label>
                     <select id="varTypeSelect" onchange="onVarTypeChange()" style="flex: 1;">
-                        <option value="string">Text (Chuỗi)</option>
-                        <option value="array">Mảng (Danh sách)</option>
-                        <option value="image">Hình ảnh (Image)</option>
+                        <option value="string">String (Text)</option>
+                        <option value="array">Array (List)</option>
+                        <option value="image">Image</option>
                     </select>
                 </div>
                 <div class="prop-row" id="varTextareaRow" style="align-items: flex-start;">
-                    <label style="width: 90px; font-size: 12px; color: #a6adc8; margin-top: 4px;">Data mẫu:</label>
-                    <textarea id="varValueInput" placeholder="Nhập giá trị mẫu"
+                    <label style="width: 90px; font-size: 12px; color: #a6adc8; margin-top: 4px;">Mock data:</label>
+                    <textarea id="varValueInput" placeholder="Enter mock value"
                         style="flex: 1; height: 100px; resize: vertical;"></textarea>
                 </div>
                 <!-- Image data type inputs -->
                 <div id="varImageInputs" style="display: none; flex-direction: column; gap: 12px;">
                     <div class="prop-row">
-                        <label style="width: 90px; font-size: 12px; color: #a6adc8;">Đường dẫn (URL):</label>
-                        <input type="text" id="varImageUrlInput" placeholder="Nhập URL hoặc tự tải file bên dưới"
+                        <label style="width: 90px; font-size: 12px; color: #a6adc8;">URL path:</label>
+                        <input type="text" id="varImageUrlInput" placeholder="Enter URL or upload file below"
                             style="flex: 1;" oninput="onVarImageUrlInput()">
                     </div>
                     <div class="prop-row">
-                        <label style="width: 90px; font-size: 12px; color: #a6adc8;">Tải ảnh local:</label>
+                        <label style="width: 90px; font-size: 12px; color: #a6adc8;">Upload image:</label>
                         <input type="file" id="varImageFileInput" accept="image/*,image/svg+xml"
                             onchange="onVarImageFileChange(event)" style="display:none;">
                         <button onclick="document.getElementById('varImageFileInput').click()"
-                            style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer; font-size: 12px;">Chọn
-                            file ảnh...</button>
+                            style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer; font-size: 12px;">Choose image file...</button>
                     </div>
                     <div class="prop-row" style="align-items: flex-start;">
-                        <label style="width: 90px; font-size: 12px; color: #a6adc8; margin-top: 4px;">Xem trước:</label>
+                        <label style="width: 90px; font-size: 12px; color: #a6adc8; margin-top: 4px;">Preview:</label>
                         <div
                             style="flex: 1; border: 1px solid #45475a; border-radius: 4px; background: #11111b; height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 4px;">
                             <img id="varImagePreview" src=""
                                 style="max-width: 100%; max-height: 100%; object-fit: contain; display: none;">
-                            <span id="varImagePreviewPlaceholder" style="color: #6c7086; font-size: 11px;">Chưa có
-                                ảnh</span>
+                            <span id="varImagePreviewPlaceholder" style="color: #6c7086; font-size: 11px;">No image preview</span>
                         </div>
                     </div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
                     <button onclick="closeVarModal()"
-                        style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer;">Hủy</button>
+                        style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer;">Cancel</button>
                     <button onclick="saveVar()"
-                        style="width: auto; padding: 6px 12px; border: 1px solid #89b4fa; background: #89b4fa; color: #1e1e2e; font-weight: 600; border-radius: 6px; cursor: pointer;">Lưu</button>
+                        style="width: auto; padding: 6px 12px; border: 1px solid #89b4fa; background: #89b4fa; color: #1e1e2e; font-weight: 600; border-radius: 6px; cursor: pointer;">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JSON Modal -->
+    <div class="modal-bg" id="jsonModal">
+        <div class="modal" style="width: 600px; height: 80vh; align-self: center;">
+            <div class="mhead">
+                <span style="font-weight:600">JSON Configuration</span>
+                <button onclick="closeJSONModal()"
+                    style="background:none;border:none;color:#cdd6f4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; overflow: hidden;">
+                <p style="font-size: 11px; color: #a6adc8; margin: 0;">You can copy or directly edit the JSON configuration below, then click "Apply" to update the design.</p>
+                <textarea id="jsonTextArea" style="flex: 1; width: 100%; height: 100%; font-family: monospace; font-size: 12px; background: #11111b; color: #a6e3a1; border: 1px solid #45475a; border-radius: 6px; padding: 12px; resize: none; outline: none;"></textarea>
+                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; flex-shrink: 0;">
+                    <button onclick="copyJSON()" style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Copy
+                    </button>
+                    <button onclick="closeJSONModal()" style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer;">Close</button>
+                    <button onclick="applyJSON()" style="width: auto; padding: 6px 12px; border: 1px solid #89b4fa; background: #89b4fa; color: #1e1e2e; font-weight: 600; border-radius: 6px; cursor: pointer;">Apply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fx Editor Modal -->
+    <div class="modal-bg" id="fxEditorModal">
+        <div class="modal" style="width: 500px; height: auto; max-height: 90vh; align-self: center;">
+            <div class="mhead">
+                <span style="font-weight:600" id="fxEditorModalTitle">Fx Expression Editor</span>
+                <button onclick="closeFxEditorModal()"
+                    style="background:none;border:none;color:#cdd6f4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                <div style="color: #a6adc8; font-size: 12px; line-height: 1.4;" id="fxEditorModalDescription">
+                    Enter JavaScript expression or block. Variable values are accessed via <code>$data</code>.
+                </div>
+                <div class="prop-row" style="align-items: flex-start;">
+                    <textarea id="fxEditorModalInput" placeholder="e.g. $data.dd > 0"
+                        style="flex: 1; height: 150px; resize: vertical; font-family: monospace; font-size: 13px; line-height: 1.4; padding: 8px;"></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                    <button onclick="closeFxEditorModal()" style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+                    <button onclick="saveFxEditorModal()" style="width: auto; padding: 6px 12px; border: 1px solid #89b4fa; background: #89b4fa; color: #1e1e2e; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 12px;">Apply</button>
                 </div>
             </div>
         </div>

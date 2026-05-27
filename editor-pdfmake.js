@@ -3,6 +3,7 @@
 // ============================================================
 var elements = [];
 var selectedId = null;
+var selectedIds = [];
 var idCounter = 0;
 var pageConfig = {
     bgColor: '#ffffff',
@@ -15,24 +16,28 @@ var pageConfig = {
     paperOrient: 'portrait'
 };
 var variables = {
-    pk_ten: "Tên phòng khám",
-    pk_sdt: "0123456789",
-    pk_so_phieu: "12381/1251",
-    pk_ma_y_te: "1238/125",
-    pk_logo: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==",
-    bn_ten: "NGUYỄN VĂN A",
-    bn_tuoi: "35",
-    bn_gioi_tinh: "Nam",
-    bn_dia_chi: "123 Đường ABC, TP.HCM",
-    kb_chan_doan: "Viêm họng cấp",
-    bs_ten: "BS. Trần Văn B",
-    toa_thuoc: [
-        { stt: 1, ten: "Paracetamol 500mg", so_luong: 10, don_vi_tinh: "Viên", cach_dung: "Uống sau ăn, sáng 1 tối 1" },
-        { stt: 2, ten: "Amoxicillin 500mg", so_luong: 14, don_vi_tinh: "Viên", cach_dung: "Uống sau ăn, sáng 1 tối 1" },
-        { stt: 3, ten: "Decolgen Forte", so_luong: 4, don_vi_tinh: "Viên", cach_dung: "Uống khi sốt/hắt hơi" }
+    clinic_name: "Clinic Name",
+    clinic_phone: "0123456789",
+    ticket_number: "12381/1251",
+    medical_id: "1238/125",
+    clinic_logo: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==",
+    patient_name: "JOHN SMITH",
+    patient_age: "35",
+    patient_gender: "Male",
+    patient_address: "123 Main Street, New York",
+    diagnosis: "Acute Pharyngitis",
+    doctor_name: "Dr. Jane Doe",
+    medications: [
+        { no: 1, name: "Paracetamol 500mg", quantity: 10, unit: "Tablet", usage: "Take after meals, 1 morning 1 night" },
+        { no: 2, name: "Amoxicillin 500mg", quantity: 14, unit: "Tablet", usage: "Take after meals, 1 morning 1 night" },
+        { no: 3, name: "Decolgen Forte", quantity: 4, unit: "Tablet", usage: "Take when feverish/sneezing" }
     ]
 };
 var dragState = null;
+var isLivePreviewOn = false;
+var livePreviewTimeout = null;
+var currentActiveFrame = 1;
+var activeBlobUrl = null;
 
 function isImageVal(val) {
     if (typeof val !== 'string') return false;
@@ -44,6 +49,34 @@ function isImageVal(val) {
            val.endsWith('.jpg') || 
            val.endsWith('.jpeg') || 
            val.endsWith('.svg');
+}
+
+function evaluateFx(expr, data) {
+    try {
+        if (/\breturn\b/.test(expr)) {
+            var fn = new Function('$data', expr);
+            var res = fn(data);
+            return res !== undefined && res !== null ? res : '';
+        }
+        var fn = new Function('$data', 'return eval(arguments[1]);');
+        var res = fn(data, expr);
+        return res !== undefined && res !== null ? res : '';
+    } catch (e) {
+        return 'Fx Error: ' + e.message;
+    }
+}
+
+function isElementVisible(el, data) {
+    if (!el.useShowFx || !el.showFx || el.showFx.trim() === '') return true;
+    try {
+        var res = evaluateFx(el.showFx, data);
+        if (typeof res === 'string' && res.startsWith('Fx Error:')) {
+            return true;
+        }
+        return !!res;
+    } catch (e) {
+        return true;
+    }
 }
 
 function getParsedWidth(widthVal) {
@@ -80,13 +113,13 @@ function getRotatedSize(w, h, angle) {
 // ELEMENT MANAGEMENT
 // ============================================================
 function addElement(type) {
-    var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, parentId: null };
+    var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, parentId: null, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     switch(type) {
         case 'text':
-            Object.assign(el, { type:'text', text:'Text mới', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200 });
+            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200 });
             break;
         case 'heading':
-            Object.assign(el, { type:'text', text:'TIÊU ĐỀ', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572 });
+            Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572 });
             el.x = 20;
             break;
         case 'line':
@@ -99,14 +132,14 @@ function addElement(type) {
             Object.assign(el, { type:'shape', shapeType:'rect', width:100, height:50, lineWidth:1, color:'#000000', fillColor:'', radius:0, points:'0,50 50,0 100,50', close:true });
             break;
         case 'table':
-            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Cột 1','Cột 2','Cột 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'' });
+            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'' });
             break;
         case 'columns':
-            Object.assign(el, { type:'columns', left:'Nội dung trái', right:'Nội dung phải', fontSize:13, width:550, leftAlign:'left', rightAlign:'left' });
+            Object.assign(el, { type:'columns', left:'Left Content', right:'Right Content', fontSize:13, width:550, leftAlign:'left', rightAlign:'left' });
             break;
         case 'var':
-            var key = Object.keys(variables)[0] || 'bn_ten';
-            Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200 });
+            var key = Object.keys(variables)[0] || 'patient_name';
+            Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
             break;
         case 'image':
             Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100 });
@@ -126,7 +159,15 @@ function addElement(type) {
 
 function deleteElement(id) {
     elements = elements.filter(function(e) { return e.id !== id && e.parentId !== id; });
-    if (selectedId === id) { selectedId = null; renderProps(); }
+    var idx = selectedIds.indexOf(id);
+    if (idx !== -1) {
+        selectedIds.splice(idx, 1);
+    }
+    if (selectedId === id) {
+        selectedId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+        renderProps();
+    }
+    updateAlignToolbar();
     render();
 }
 
@@ -144,7 +185,6 @@ function moveElement(id, dir) {
 
 // ============================================================
 // RENDER CANVAS
-// ============================================================
 function render() {
     var paper = document.getElementById('paper');
     paper.innerHTML = '';
@@ -153,33 +193,22 @@ function render() {
     paper.style.background = pageConfig.bgColor || '#ffffff';
     paper.style.fontFamily = pageConfig.defaultFont === 'Times New Roman' ? "'Times New Roman', serif" : "'Roboto', sans-serif";
 
-    // Add margin guide overlay
     var sizes = { LETTER:[612,792], A4:[595,842], A5:[420,595], LEGAL:[612,1008] };
     var s = sizes[pageConfig.paperSize || 'LETTER'] || sizes.LETTER;
     var orient = pageConfig.paperOrient || 'portrait';
     var w = (orient==='landscape'?s[1]:s[0]);
     var h = (orient==='landscape'?s[0]:s[1]);
-    
-    var marginGuide = document.createElement('div');
-    marginGuide.className = 'margin-guide';
-    marginGuide.style.left = pageConfig.marginLeft + 'px';
-    marginGuide.style.top = pageConfig.marginTop + 'px';
-    var guideW = w - pageConfig.marginLeft - pageConfig.marginRight;
-    var guideH = h - pageConfig.marginTop - pageConfig.marginBottom;
-    if (guideW > 0 && guideH > 0) {
-        marginGuide.style.width = guideW + 'px';
-        marginGuide.style.height = guideH + 'px';
-        paper.appendChild(marginGuide);
-    }
 
     function renderElementDOM(el) {
         var div = document.createElement('div');
-        div.className = 'el' + (el.id === selectedId ? ' selected' : '');
+        var isVisible = isElementVisible(el, variables);
+        var isSelected = selectedIds.indexOf(el.id) !== -1;
+        div.className = 'el' + (isSelected ? ' selected' : '') + (isVisible ? '' : ' hidden-preview');
         div.style.left = el.x + 'px';
         div.style.top = el.y + 'px';
         div.setAttribute('data-id', el.id);
         div.onmousedown = function(e) { e.stopPropagation(); startDrag(e, el.id); };
-        div.onclick = function(e) { e.stopPropagation(); selectElement(el.id); };
+        div.onclick = function(e) { e.stopPropagation(); selectElement(el.id, e); };
 
         switch(el.type) {
             case 'text':
@@ -187,9 +216,16 @@ function render() {
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
-                div.style.color = el.color;
+                var textColor = el.color;
+                if (el.isColorFx && el.colorFx) {
+                    var evaluatedColor = evaluateFx(el.colorFx, variables);
+                    if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
+                        textColor = evaluatedColor;
+                    }
+                }
+                div.style.color = textColor || '#000000';
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = wVal.indexOf('%') !== -1 ? wVal : wVal + 'px';
+                div.style.width = getParsedWidth(wVal) + 'px';
                 div.textContent = el.text;
                 break;
             case 'var':
@@ -197,12 +233,26 @@ function render() {
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
-                div.style.color = el.color || '#000';
+                var textColor = el.color;
+                if (el.isColorFx && el.colorFx) {
+                    var evaluatedColor = evaluateFx(el.colorFx, variables);
+                    if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
+                        textColor = evaluatedColor;
+                    }
+                }
+                div.style.color = textColor || '#000000';
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = wVal.indexOf('%') !== -1 ? wVal : wVal + 'px';
+                div.style.width = getParsedWidth(wVal) + 'px';
                 div.style.background = '#e8f4fd';
                 div.style.borderRadius = '3px';
-                div.textContent = (el.prefix || '') + (variables[el.varName] || '{' + el.varName + '}');
+                div.style.whiteSpace = el.wrap === false ? 'nowrap' : 'pre-wrap';
+                var displayVal = '';
+                if (el.isFx) {
+                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '(Biểu thức Fx)';
+                } else {
+                    displayVal = variables[el.varName] !== undefined ? variables[el.varName] : '{' + el.varName + '}';
+                }
+                div.textContent = (el.prefix || '') + displayVal;
                 break;
             case 'line':
                 div.style.width = el.lineWidth + 'px';
@@ -221,20 +271,20 @@ function render() {
                 var sw = el.lineWidth || 1;
                 var sc = el.color || '#000000';
                 var fc = el.fillColor || 'none';
-                var w = getParsedWidth(el.width || 100);
-                var h = el.height || 50;
+                var swW = getParsedWidth(el.width || 100);
+                var swH = el.height || 50;
                 
-                var rSize = getRotatedSize(w, h, angle);
+                var rSize = getRotatedSize(swW, swH, angle);
                 var svg = '<svg width="'+rSize.w+'" height="'+rSize.h+'" style="position:absolute; left:-'+rSize.dx+'px; top:-'+rSize.dy+'px; overflow:visible; display:block;">';
-                svg += '<g transform="translate('+(rSize.w/2)+' '+(rSize.h/2)+') rotate('+angle+') translate('+(-w/2)+' '+(-h/2)+')">';
+                svg += '<g transform="translate('+(rSize.w/2)+' '+(rSize.h/2)+') rotate('+angle+') translate('+(-swW/2)+' '+(-swH/2)+')">';
                 
                 if (el.shapeType === 'rect') {
                     var r = el.radius || 0;
-                    svg += '<rect x="'+(sw/2)+'" y="'+(sw/2)+'" width="'+(w-sw)+'" height="'+(h-sw)+'" rx="'+r+'" ry="'+r+'" stroke="'+sc+'" stroke-width="'+sw+'" fill="'+fc+'" />';
+                    svg += '<rect x="'+(sw/2)+'" y="'+(sw/2)+'" width="'+(swW-sw)+'" height="'+(swH-sw)+'" rx="'+r+'" ry="'+r+'" stroke="'+sc+'" stroke-width="sw" fill="'+fc+'" />';
                 } else if (el.shapeType === 'line') {
-                    svg += '<line x1="0" y1="'+(h/2)+'" x2="'+w+'" y2="'+(h/2)+'" stroke="'+sc+'" stroke-width="'+sw+'" />';
+                    svg += '<line x1="0" y1="'+(swH/2)+'" x2="'+swW+'" y2="'+(swH/2)+'" stroke="'+sc+'" stroke-width="'+sw+'" />';
                 } else if (el.shapeType === 'ellipse') {
-                    svg += '<ellipse cx="'+(w/2)+'" cy="'+(h/2)+'" rx="'+((w-sw)/2)+'" ry="'+((h-sw)/2)+'" stroke="'+sc+'" stroke-width="'+sw+'" fill="'+fc+'" />';
+                    svg += '<ellipse cx="'+(swW/2)+'" cy="'+(swH/2)+'" rx="'+((swW-sw)/2)+'" ry="'+((swH-sw)/2)+'" stroke="'+sc+'" stroke-width="'+sw+'" fill="'+fc+'" />';
                 } else if (el.shapeType === 'polygon') {
                     var pts = el.points || '0,0 50,50 100,0';
                     if (el.close) {
@@ -245,8 +295,8 @@ function render() {
                 }
                 svg += '</g></svg>';
                 
-                div.style.width = w + 'px';
-                div.style.height = h + 'px';
+                div.style.width = swW + 'px';
+                div.style.height = swH + 'px';
                 div.innerHTML = svg;
                 break;
             case 'image':
@@ -261,7 +311,7 @@ function render() {
                 img.style.display = 'block';
                 
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = wVal.indexOf('%') !== -1 ? wVal : wVal + 'px';
+                div.style.width = getParsedWidth(wVal) + 'px';
                 div.style.height = (el.height || 100) + 'px';
                 div.innerHTML = '';
                 div.appendChild(img);
@@ -347,7 +397,7 @@ function render() {
                 break;
             case 'columns':
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = wVal.indexOf('%') !== -1 ? wVal : wVal + 'px';
+                div.style.width = getParsedWidth(wVal) + 'px';
                 div.style.fontSize = el.fontSize + 'px';
                 div.style.display = 'flex';
                 div.style.gap = '10px';
@@ -382,6 +432,7 @@ function render() {
         paper.appendChild(div);
     }
 
+    // 1. Render all elements to DOM first (so that their actual heights can be computed by the browser)
     elements.forEach(function(el) {
         if (el.type === 'panel') {
             renderElementDOM(el);
@@ -393,6 +444,75 @@ function render() {
             renderElementDOM(el);
         }
     });
+
+    // 2. Now calculate total pages dynamically using the actual DOM heights
+    var maxY = h; // At least one page height
+    elements.forEach(function(el) {
+        var elH = getElementHeight(el);
+        var bottom = el.y + elH;
+        if (bottom > maxY) {
+            maxY = bottom;
+        }
+    });
+
+    var pageBreaks = elements.filter(function(e) { return e.type === 'pagebreak'; }).sort(function(a,b) { return a.y - b.y; });
+    if (pageBreaks.length > 0) {
+        var lastPB = pageBreaks[pageBreaks.length - 1];
+        if (lastPB.y + 100 > maxY) {
+            maxY = lastPB.y + 100;
+        }
+    }
+
+    var totalPages = Math.ceil(maxY / h);
+    if (totalPages < 1) totalPages = 1;
+
+    paper.style.width = w + 'px';
+    paper.style.height = (totalPages * h) + 'px';
+
+    // 3. Prepend margin guides and dividers at the top of the DOM flow (so they draw behind active elements)
+    // Add page dividers
+    for (var p = 1; p < totalPages; p++) {
+        var divider = document.createElement('div');
+        divider.className = 'page-divider';
+        divider.style.position = 'absolute';
+        divider.style.left = '0';
+        divider.style.width = '100%';
+        divider.style.top = (p * h) + 'px';
+        divider.style.borderTop = '2px dashed #89b4fa';
+        divider.style.zIndex = '5';
+        divider.style.pointerEvents = 'none';
+        
+        var label = document.createElement('div');
+        label.style.position = 'absolute';
+        label.style.right = '10px';
+        label.style.top = '-18px';
+        label.style.background = '#89b4fa';
+        label.style.color = '#1e1e2e';
+        label.style.fontWeight = 'bold';
+        label.style.fontSize = '10px';
+        label.style.padding = '2px 6px';
+        label.style.borderRadius = '4px';
+        label.style.fontFamily = 'sans-serif';
+        label.textContent = 'Page ' + (p + 1);
+        
+        divider.appendChild(label);
+        paper.insertBefore(divider, paper.firstChild);
+    }
+
+    // Add margin guides
+    for (var p = 0; p < totalPages; p++) {
+        var marginGuide = document.createElement('div');
+        marginGuide.className = 'margin-guide';
+        marginGuide.style.left = pageConfig.marginLeft + 'px';
+        marginGuide.style.top = (p * h + pageConfig.marginTop) + 'px';
+        var guideW = w - pageConfig.marginLeft - pageConfig.marginRight;
+        var guideH = h - pageConfig.marginTop - pageConfig.marginBottom;
+        if (guideW > 0 && guideH > 0) {
+            marginGuide.style.width = guideW + 'px';
+            marginGuide.style.height = guideH + 'px';
+            paper.insertBefore(marginGuide, paper.firstChild);
+        }
+    }
 
     // Render Drag Guides & Tooltip if dragging
     if (dragState && dragState.guides) {
@@ -425,20 +545,67 @@ function render() {
 
     renderVarList();
     renderOutline();
+    triggerLivePreviewUpdate();
 }
 
 // ============================================================
 // DRAG
 // ============================================================
 function startDrag(e, id) {
+    if (e.button !== 0) return; // Only left click
     e.preventDefault();
-    var el = elements.find(function(e) { return e.id === id; });
+    var el = elements.find(function(item) { return item.id === id; });
     if (!el) return;
-    dragState = { id: id, startX: e.clientX, startY: e.clientY, origX: el.x, origY: el.y };
+    
+    var isCtrl = e && (e.ctrlKey || e.metaKey);
+    var shouldDeselectOnMouseUp = false;
+    
+    // If the clicked element is not part of the current selection, update selection
+    if (selectedIds.indexOf(id) === -1) {
+        if (isCtrl) {
+            selectedIds.push(id);
+            selectedId = id;
+        } else {
+            selectedIds = [id];
+            selectedId = id;
+        }
+        updateAlignToolbar();
+        render();
+    } else {
+        if (isCtrl) {
+            shouldDeselectOnMouseUp = true;
+        }
+    }
+    
+    // Store original coordinates of all selected elements
+    var dragElements = elements.filter(function(item) {
+        return selectedIds.indexOf(item.id) !== -1;
+    }).map(function(item) {
+        var absPos = getElementAbsPos(item);
+        return {
+            id: item.id,
+            origX: item.x,
+            origY: item.y,
+            origAbsX: absPos.x,
+            origAbsY: absPos.y,
+            parentId: item.parentId,
+            width: getElementWidth(item),
+            height: getElementHeight(item)
+        };
+    });
+    
+    dragState = { 
+        id: id, 
+        startX: e.clientX, 
+        startY: e.clientY, 
+        dragElements: dragElements,
+        hasMoved: false,
+        shouldDeselectOnMouseUp: shouldDeselectOnMouseUp
+    };
     document.onmousemove = onDrag;
     document.onmouseup = endDrag;
 }
-function getElementHeight(el) {
+function getElementHeight(el, vars) {
     if (el.type === 'shape') {
         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
         return rSize.h;
@@ -448,7 +615,15 @@ function getElementHeight(el) {
     if (el.type === 'rect') return el.rectH || 20;
     if (el.type === 'line') return el.lineWeight || 1;
     if (el.type === 'text' || el.type === 'var') return el.fontSize || 13;
-    if (el.type === 'table') return 100;
+    if (el.type === 'table') {
+        var displayData = el.data || [];
+        var activeVars = vars || variables;
+        if (el.dataVar && activeVars && Array.isArray(activeVars[el.dataVar])) {
+            displayData = activeVars[el.dataVar];
+        }
+        var rowsCount = displayData.length + (el.showHeader !== false ? 1 : 0);
+        return rowsCount * (el.fontSize + 8) + 10;
+    }
     if (el.type === 'image') return el.height || 100;
     if (el.type === 'panel') return el.height || 150;
     return 20;
@@ -459,6 +634,10 @@ function onDrag(e) {
     var el = elements.find(function(e) { return e.id === dragState.id; });
     if (!el) return;
     
+    if (Math.abs(e.clientX - dragState.startX) > 3 || Math.abs(e.clientY - dragState.startY) > 3) {
+        dragState.hasMoved = true;
+    }
+    
     // Get paper size for bounding
     var paperSize = pageConfig.paperSize || 'LETTER';
     var paperOrient = pageConfig.paperOrient || 'portrait';
@@ -468,8 +647,9 @@ function onDrag(e) {
     var h = (paperOrient==='landscape'?s[0]:s[1]);
 
     // Calculate the dragged element's raw relative coordinates
-    var rawRelX = Math.max(0, dragState.origX + (e.clientX - dragState.startX));
-    var rawRelY = Math.max(0, dragState.origY + (e.clientY - dragState.startY));
+    var primaryDragInfo = dragState.dragElements.find(function(info) { return info.id === el.id; });
+    var rawRelX = Math.max(0, primaryDragInfo.origX + (e.clientX - dragState.startX));
+    var rawRelY = Math.max(0, primaryDragInfo.origY + (e.clientY - dragState.startY));
     
     // Convert to raw absolute coordinates (relative to paper) for snapping
     var parentAbsX = 0;
@@ -513,7 +693,7 @@ function onDrag(e) {
         var othW = getElementWidth(other);
         var othH = getElementHeight(other);
         
-        // Vertical snapping & guidelines (Left, Right, Center)
+        // Vertical snapping & guidelines (Left, Right, Center, and Adjacent)
         if (Math.abs(rawAbsX - othPos.x) < snapThresh) {
             snapAbsX = othPos.x;
             guideLines.v.push(othPos.x);
@@ -526,8 +706,17 @@ function onDrag(e) {
             snapAbsX = othPos.x + othW/2 - elW/2;
             guideLines.v.push(othPos.x + othW/2);
         }
+        // Adjacent snapping (right edge to left edge, left edge to right edge)
+        if (Math.abs((rawAbsX + elW) - othPos.x) < snapThresh) {
+            snapAbsX = othPos.x - elW;
+            guideLines.v.push(othPos.x);
+        }
+        if (Math.abs(rawAbsX - (othPos.x + othW)) < snapThresh) {
+            snapAbsX = othPos.x + othW;
+            guideLines.v.push(othPos.x + othW);
+        }
         
-        // Horizontal snapping & guidelines (Top, Bottom)
+        // Horizontal snapping & guidelines (Top, Bottom, Center, and Adjacent)
         if (Math.abs(rawAbsY - othPos.y) < snapThresh) {
             snapAbsY = othPos.y;
             guideLines.h.push(othPos.y);
@@ -536,29 +725,128 @@ function onDrag(e) {
             snapAbsY = othPos.y + othH - elH;
             guideLines.h.push(othPos.y + othH);
         }
+        if (Math.abs((rawAbsY + elH/2) - (othPos.y + othH/2)) < snapThresh) {
+            snapAbsY = othPos.y + othH/2 - elH/2;
+            guideLines.h.push(othPos.y + othH/2);
+        }
+        // Adjacent snapping (bottom edge to top edge, top edge to bottom edge)
+        if (Math.abs((rawAbsY + elH) - othPos.y) < snapThresh) {
+            snapAbsY = othPos.y - elH;
+            guideLines.h.push(othPos.y);
+        }
+        if (Math.abs(rawAbsY - (othPos.y + othH)) < snapThresh) {
+            snapAbsY = othPos.y + othH;
+            guideLines.h.push(othPos.y + othH);
+        }
     });
+    
+    // Snap to page margins (padding edges)
+    var mL = pageConfig.marginLeft || 0;
+    var mR = w - (pageConfig.marginRight || 0);
+    var mT = pageConfig.marginTop || 0;
+    var mB = pageConfig.marginBottom || 0;
+    
+    // Snapping to left/right margins
+    if (Math.abs(rawAbsX - mL) < snapThresh) {
+        snapAbsX = mL;
+        if (guideLines.v.indexOf(mL) === -1) guideLines.v.push(mL);
+    }
+    if (Math.abs((rawAbsX + elW) - mR) < snapThresh) {
+        snapAbsX = mR - elW;
+        if (guideLines.v.indexOf(mR) === -1) guideLines.v.push(mR);
+    }
+    
+    // Snapping to top/bottom margins of each page
+    var maxYForPages = h;
+    elements.forEach(function(item) {
+        if (item.id === el.id) return;
+        var bottom = item.y + getElementHeight(item);
+        if (bottom > maxYForPages) maxYForPages = bottom;
+    });
+    var pBreaks = elements.filter(function(e) { return e.type === 'pagebreak'; }).sort(function(a,b) { return a.y - b.y; });
+    if (pBreaks.length > 0) {
+        var lastPB = pBreaks[pBreaks.length - 1];
+        if (lastPB.y + 100 > maxYForPages) maxYForPages = lastPB.y + 100;
+    }
+    var currentPages = Math.ceil(maxYForPages / h);
+    var dragBottom = rawAbsY + elH;
+    var maxPossiblePages = currentPages;
+    if (dragBottom > (currentPages * h) - 50) {
+        maxPossiblePages = currentPages + 1;
+    }
+    
+    for (var p = 0; p < maxPossiblePages; p++) {
+        var pageTopMargin = p * h + mT;
+        var pageBottomMargin = (p + 1) * h - mB;
+        
+        if (Math.abs(rawAbsY - pageTopMargin) < snapThresh) {
+            snapAbsY = pageTopMargin;
+            if (guideLines.h.indexOf(pageTopMargin) === -1) guideLines.h.push(pageTopMargin);
+        }
+        if (Math.abs((rawAbsY + elH) - pageBottomMargin) < snapThresh) {
+            snapAbsY = pageBottomMargin - elH;
+            if (guideLines.h.indexOf(pageBottomMargin) === -1) guideLines.h.push(pageBottomMargin);
+        }
+    }
     
     var finalAbsX = (snapAbsX !== null) ? snapAbsX : rawAbsX;
     var finalAbsY = (snapAbsY !== null) ? snapAbsY : rawAbsY;
     
-    if (el.parentId) {
-        var parent = elements.find(function(e) { return e.id === el.parentId; });
-        if (parent) {
-            var relX = finalAbsX - parentAbsX;
-            var relY = finalAbsY - parentAbsY;
-            relX = Math.max(0, Math.min(parent.width - elW, relX));
-            relY = Math.max(0, Math.min(parent.height - elH, relY));
-            el.x = relX;
-            el.y = relY;
-        }
-    } else {
-        el.x = Math.max(0, Math.min(w - elW, finalAbsX));
-        el.y = Math.max(0, Math.min(h - elH, finalAbsY));
-    }
+    var deltaAbsX = finalAbsX - primaryDragInfo.origAbsX;
+    var deltaAbsY = finalAbsY - primaryDragInfo.origAbsY;
     
-    if (el.type === 'pagebreak') {
-        el.x = 0;
-    }
+    dragState.dragElements.forEach(function(itemInfo) {
+        var item = elements.find(function(x) { return x.id === itemInfo.id; });
+        if (!item) return;
+        
+        var targetAbsX = itemInfo.origAbsX + deltaAbsX;
+        var targetAbsY = itemInfo.origAbsY + deltaAbsY;
+        
+        if (item.parentId) {
+            var parent = elements.find(function(e) { return e.id === item.parentId; });
+            if (parent) {
+                var pPos = getElementAbsPos(parent);
+                var relX = targetAbsX - pPos.x;
+                var relY = targetAbsY - pPos.y;
+                relX = Math.max(0, Math.min(parent.width - itemInfo.width, relX));
+                relY = Math.max(0, Math.min(parent.height - itemInfo.height, relY));
+                item.x = relX;
+                item.y = relY;
+            }
+        } else {
+            item.x = Math.max(0, Math.min(w - itemInfo.width, targetAbsX));
+            
+            // Calculate max Y among all other non-dragged elements to know the current canvas height
+            var maxY = h;
+            elements.forEach(function(other) {
+                if (selectedIds.indexOf(other.id) !== -1) return;
+                var bottom = other.y + getElementHeight(other);
+                if (bottom > maxY) maxY = bottom;
+            });
+            
+            var pageBreaks = elements.filter(function(e) { return e.type === 'pagebreak'; }).sort(function(a,b) { return a.y - b.y; });
+            if (pageBreaks.length > 0) {
+                var lastPB = pageBreaks[pageBreaks.length - 1];
+                if (lastPB.y + 100 > maxY) {
+                    maxY = lastPB.y + 100;
+                }
+            }
+            
+            var currentPages = Math.ceil(maxY / h);
+            var dragBottom = targetAbsY + itemInfo.height;
+            var maxPossiblePages = currentPages;
+            if (dragBottom > (currentPages * h) - 50) {
+                maxPossiblePages = currentPages + 1;
+            }
+            
+            var maxCanvasHeight = maxPossiblePages * h;
+            item.y = Math.max(0, Math.min(maxCanvasHeight - itemInfo.height, targetAbsY));
+        }
+        
+        if (item.type === 'pagebreak') {
+            item.x = 0;
+        }
+    });
     
     dragState.guides = guideLines;
     dragState.currentX = el.parentId ? (parentAbsX + el.x) : el.x;
@@ -566,38 +854,57 @@ function onDrag(e) {
     
     render();
 }
-function endDrag() {
+function endDrag(e) {
     if (dragState) {
-        var el = elements.find(function(e) { return e.id === dragState.id; });
+        var el = elements.find(function(item) { return item.id === dragState.id; });
         if (el) {
-            // Select the dragged element so its properties are displayed
-            selectedId = el.id;
+            var isDrag = dragState.hasMoved;
             
-            if (el.type !== 'panel' && el.type !== 'pagebreak') {
-                var elAbsPos = getElementAbsPos(el);
-                var elW = getElementWidth(el);
-                var elH = getElementHeight(el);
-                var elCenterX = elAbsPos.x + elW / 2;
-                var elCenterY = elAbsPos.y + elH / 2;
+            if (!isDrag) {
+                // If it wasn't dragged, toggle or select
+                if (dragState.shouldDeselectOnMouseUp) {
+                    selectElement(el.id, e);
+                } else if (!e.ctrlKey && !e.metaKey) {
+                    // Normal click: select exclusively
+                    selectElement(el.id, e);
+                }
+            } else {
+                // Keep the multi-selection as is and just refresh the toolbar
+                updateAlignToolbar();
                 
-                var containingPanels = elements.filter(function(item) {
-                    if (item.type !== 'panel' || item.id === el.id) return false;
-                    var pAbs = getElementAbsPos(item);
-                    return (elCenterX >= pAbs.x && elCenterX <= pAbs.x + item.width &&
-                            elCenterY >= pAbs.y && elCenterY <= pAbs.y + item.height);
+                // Update parent container for all dragged elements
+                dragState.dragElements.forEach(function(itemInfo) {
+                    var item = elements.find(function(x) { return x.id === itemInfo.id; });
+                    if (!item) return;
+                    if (item.type !== 'panel' && item.type !== 'pagebreak') {
+                        var elAbsPos = getElementAbsPos(item);
+                        var elW = getElementWidth(item);
+                        var elH = getElementHeight(item);
+                        var elCenterX = elAbsPos.x + elW / 2;
+                        var elCenterY = elAbsPos.y + elH / 2;
+                        
+                        var containingPanels = elements.filter(function(p) {
+                            if (p.type !== 'panel' || p.id === item.id) return false;
+                            // Do not parent to a panel that is also part of the dragging group to avoid cycles
+                            if (selectedIds.indexOf(p.id) !== -1) return false;
+                            var pAbs = getElementAbsPos(p);
+                            return (elCenterX >= pAbs.x && elCenterX <= pAbs.x + p.width &&
+                                    elCenterY >= pAbs.y && elCenterY <= pAbs.y + p.height);
+                        });
+                        
+                        var targetParentId = null;
+                        if (containingPanels.length > 0) {
+                            containingPanels.sort(function(a, b) {
+                                return (a.width * a.height) - (b.width * b.height);
+                            });
+                            targetParentId = containingPanels[0].id;
+                        }
+                        
+                        if (item.parentId !== targetParentId) {
+                            changeElementParent(item.id, targetParentId ? targetParentId.toString() : null);
+                        }
+                    }
                 });
-                
-                var targetParentId = null;
-                if (containingPanels.length > 0) {
-                    containingPanels.sort(function(a, b) {
-                        return (a.width * a.height) - (b.width * b.height);
-                    });
-                    targetParentId = containingPanels[0].id;
-                }
-                
-                if (el.parentId !== targetParentId) {
-                    changeElementParent(el.id, targetParentId ? targetParentId.toString() : null);
-                }
             }
         }
     }
@@ -612,16 +919,34 @@ function endDrag() {
 // ============================================================
 // SELECT / DESELECT
 // ============================================================
-function selectElement(id) {
-    selectedId = id;
+function selectElement(id, event) {
+    var isCtrl = event && (event.ctrlKey || event.metaKey);
+    if (isCtrl) {
+        var idx = selectedIds.indexOf(id);
+        if (idx !== -1) {
+            selectedIds.splice(idx, 1);
+        } else {
+            selectedIds.push(id);
+        }
+        selectedId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+    } else {
+        selectedIds = [id];
+        selectedId = id;
+    }
+    updateAlignToolbar();
     render();
     renderProps();
 }
 function deselect(e) {
     if (e.target.classList.contains('canvas-wrap') || e.target.id === 'paper') {
-        selectedId = null;
-        render();
-        renderProps();
+        var isCtrl = e && (e.ctrlKey || e.metaKey);
+        if (!isCtrl) {
+            selectedId = null;
+            selectedIds = [];
+            updateAlignToolbar();
+            render();
+            renderProps();
+        }
     }
 }
 
@@ -675,37 +1000,37 @@ function renderProps() {
     var panel = document.getElementById('propsContent');
     if (!selectedId) {
         var pageHtml = '';
-        pageHtml += '<h3>Cấu hình trang</h3>';
+        pageHtml += '<h3>Page Settings</h3>';
         
         // Paper Size & Orientation
-        pageHtml += '<div class="prop-row"><label>Khổ giấy</label><select onchange="setPageConfig(\'paperSize\',this.value);changePaper();">';
+        pageHtml += '<div class="prop-row"><label>Paper size</label><select onchange="setPageConfig(\'paperSize\',this.value);changePaper();">';
         pageHtml += '<option '+(pageConfig.paperSize==='LETTER'?'selected':'')+' value="LETTER">Letter</option>';
         pageHtml += '<option '+(pageConfig.paperSize==='A4'?'selected':'')+' value="A4">A4</option>';
         pageHtml += '<option '+(pageConfig.paperSize==='A5'?'selected':'')+' value="A5">A5</option>';
         pageHtml += '<option '+(pageConfig.paperSize==='LEGAL'?'selected':'')+' value="LEGAL">Legal</option>';
         pageHtml += '</select></div>';
 
-        pageHtml += '<div class="prop-row"><label>Hướng giấy</label><select onchange="setPageConfig(\'paperOrient\',this.value);changePaper();">';
-        pageHtml += '<option '+(pageConfig.paperOrient==='portrait'?'selected':'')+' value="portrait">Dọc</option>';
-        pageHtml += '<option '+(pageConfig.paperOrient==='landscape'?'selected':'')+' value="landscape">Ngang</option>';
+        pageHtml += '<div class="prop-row"><label>Orientation</label><select onchange="setPageConfig(\'paperOrient\',this.value);changePaper();">';
+        pageHtml += '<option '+(pageConfig.paperOrient==='portrait'?'selected':'')+' value="portrait">Portrait</option>';
+        pageHtml += '<option '+(pageConfig.paperOrient==='landscape'?'selected':'')+' value="landscape">Landscape</option>';
         pageHtml += '</select></div>';
 
         // Font family
-        pageHtml += '<div class="prop-row"><label>Font mặc định</label><select onchange="setPageConfig(\'defaultFont\',this.value)">';
+        pageHtml += '<div class="prop-row"><label>Default font</label><select onchange="setPageConfig(\'defaultFont\',this.value)">';
         pageHtml += '<option '+(pageConfig.defaultFont==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
         pageHtml += '<option '+(pageConfig.defaultFont==='Times New Roman'?'selected':'')+' value="Times New Roman">Times New Roman</option>';
         pageHtml += '</select></div>';
         
         // Background color
-        pageHtml += '<div class="prop-row"><label>Màu nền</label><input type="color" value="'+(pageConfig.bgColor||'#ffffff')+'" onchange="setPageConfig(\'bgColor\',this.value)">';
+        pageHtml += '<div class="prop-row"><label>Bg color</label><input type="color" value="'+(pageConfig.bgColor||'#ffffff')+'" onchange="setPageConfig(\'bgColor\',this.value)">';
         pageHtml += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setPageConfig(\'bgColor\',\'#ffffff\')">Reset</button></div>';
         
         // Margins: Left, Top, Right, Bottom
-        pageHtml += '<h3>Lề trang (px)</h3>';
-        pageHtml += '<div class="prop-row"><label>Lề trái (L)</label><input type="number" value="'+pageConfig.marginLeft+'" onchange="setPageConfig(\'marginLeft\',+this.value)"></div>';
-        pageHtml += '<div class="prop-row"><label>Lề trên (T)</label><input type="number" value="'+pageConfig.marginTop+'" onchange="setPageConfig(\'marginTop\',+this.value)"></div>';
-        pageHtml += '<div class="prop-row"><label>Lề phải (R)</label><input type="number" value="'+pageConfig.marginRight+'" onchange="setPageConfig(\'marginRight\',+this.value)"></div>';
-        pageHtml += '<div class="prop-row"><label>Lề dưới (B)</label><input type="number" value="'+pageConfig.marginBottom+'" onchange="setPageConfig(\'marginBottom\',+this.value)"></div>';
+        pageHtml += '<h3>Margins (px)</h3>';
+        pageHtml += '<div class="prop-row"><label>Left (L)</label><input type="number" value="'+pageConfig.marginLeft+'" onchange="setPageConfig(\'marginLeft\',+this.value)"></div>';
+        pageHtml += '<div class="prop-row"><label>Top (T)</label><input type="number" value="'+pageConfig.marginTop+'" onchange="setPageConfig(\'marginTop\',+this.value)"></div>';
+        pageHtml += '<div class="prop-row"><label>Right (R)</label><input type="number" value="'+pageConfig.marginRight+'" onchange="setPageConfig(\'marginRight\',+this.value)"></div>';
+        pageHtml += '<div class="prop-row"><label>Bottom (B)</label><input type="number" value="'+pageConfig.marginBottom+'" onchange="setPageConfig(\'marginBottom\',+this.value)"></div>';
         
         panel.innerHTML = pageHtml;
         return;
@@ -714,15 +1039,37 @@ function renderProps() {
     if (!el) return;
     var h = '';
     h += '<div class="prop-row"><label>Type</label><input disabled value="'+el.type+'"></div>';
-    h += '<div class="prop-row"><label>Tên gợi nhớ</label><input type="text" value="'+(el.customName||'')+'" onchange="setProp(\'customName\',this.value)" placeholder="Tên gợi nhớ..."></div>';
+    h += '<div class="prop-row"><label>Layer name</label><input type="text" value="'+(el.customName||'')+'" onchange="setProp(\'customName\',this.value)" placeholder="Layer name..."></div>';
+    
+    // Group X and Y into a single Position row
     if (el.type !== 'pagebreak') {
-        h += '<div class="prop-row"><label>X</label><input type="number" value="'+el.x+'" onchange="setProp(\'x\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Position</label>' +
+             '<div style="display:flex; gap:4px; flex:1; min-width:0;">' +
+             '<input type="number" value="'+el.x+'" onchange="setProp(\'x\',+this.value)" style="min-width:0; flex:1;">' +
+             '<input type="number" value="'+el.y+'" onchange="setProp(\'y\',+this.value)" style="min-width:0; flex:1;">' +
+             '</div></div>';
+    } else {
+        h += '<div class="prop-row"><label>Position</label>' +
+             '<input type="number" value="'+el.y+'" onchange="setProp(\'y\',+this.value)">' +
+             '</div>';
     }
-    h += '<div class="prop-row"><label>Y</label><input type="number" value="'+el.y+'" onchange="setProp(\'y\',+this.value)"></div>';
+
+    if (el.type !== 'pagebreak') {
+        var useShowFx = !!el.useShowFx;
+        h += '<div class="prop-row"><label>Visibility (Fx)</label>' +
+             '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
+             '<input type="checkbox" '+(useShowFx?'checked':'')+' onchange="toggleUseShowFx('+el.id+', this.checked)">' +
+             (useShowFx ? '<button onclick="openFxEditor('+el.id+', \'showFx\')" style="width:auto; margin:0; padding:2px 8px; background:#89b4fa; color:#1e1e2e; border:1px solid #89b4fa; border-radius:4px; font-weight:bold; cursor:pointer;" title="Edit visibility expression">{Fx}</button>' : '') +
+             '</div></div>';
+        if (useShowFx && el.showFx) {
+            var showFxPreview = el.showFx.length > 25 ? el.showFx.substring(0, 25) + '...' : el.showFx;
+            h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all; margin-bottom:8px;">Show when: ' + showFxPreview + '</div>';
+        }
+    }
     
     if (el.type !== 'panel' && el.type !== 'pagebreak') {
-        h += '<div class="prop-row"><label>Gom vào Panel</label><select onchange="changeElementParent('+el.id+', this.value)">';
-        h += '<option value="" ' + (!el.parentId ? 'selected' : '') + '>-- Không gom nhóm --</option>';
+        h += '<div class="prop-row"><label>Group</label><select onchange="changeElementParent('+el.id+', this.value)">';
+        h += '<option value="" ' + (!el.parentId ? 'selected' : '') + '>-- No Group --</option>';
         elements.forEach(function(item) {
             if (item.type === 'panel') {
                 h += '<option value="' + item.id + '" ' + (el.parentId === item.id ? 'selected' : '') + '>Panel #' + item.id + '</option>';
@@ -738,61 +1085,102 @@ function renderProps() {
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Align</label><select onchange="setProp(\'align\',this.value)"><option '+(el.align==='left'?'selected':'')+'>left</option><option '+(el.align==='center'?'selected':'')+'>center</option><option '+(el.align==='right'?'selected':'')+'>right</option></select></div>';
-        h += '<div class="prop-row"><label>Màu</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
+        
+        var isColorFx = !!el.isColorFx;
+        h += '<div class="prop-row"><label>Color</label>' +
+             '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
+             (isColorFx ? '<span style="font-size:11px; color:#89b4fa; flex:1;">Dynamic (Fx)</span>' : '<input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)" style="width:32px; height:24px; padding:0; flex:none;">') +
+             '<input type="checkbox" '+(isColorFx?'checked':'')+' onchange="toggleUseColorFx('+el.id+', this.checked)" title="Use Fx for text color">' +
+             (isColorFx ? '<button onclick="openFxEditor('+el.id+', \'colorFx\')" style="width:auto; margin:0; padding:2px 8px; background:#89b4fa; color:#1e1e2e; border:1px solid #89b4fa; border-radius:4px; font-weight:bold; cursor:pointer;" title="Edit color expression">{Fx}</button>' : '') +
+             '</div></div>';
+        if (isColorFx && el.colorFx) {
+            var colorFxPreview = el.colorFx.length > 25 ? el.colorFx.substring(0, 25) + '...' : el.colorFx;
+            h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Color Fx: ' + colorFxPreview + '</div>';
+        }
     }
     if (el.type === 'var') {
-        h += '<div class="prop-row"><label>Variable</label><select onchange="setProp(\'varName\',this.value)">';
-        Object.keys(variables).forEach(function(k) { h += '<option '+(el.varName===k?'selected':'')+' value="'+k+'">'+k+'</option>'; });
-        h += '</select></div>';
+        var isFx = !!el.isFx;
+        h += '<div class="prop-row"><label>Use Fx</label>' +
+             '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
+             '<input type="checkbox" '+(isFx?'checked':'')+' onchange="toggleUseVarFx('+el.id+', this.checked)">' +
+             (isFx ? '<button onclick="openFxEditor('+el.id+', \'fxExpr\')" style="width:auto; margin:0; padding:2px 8px; background:#89b4fa; color:#1e1e2e; border:1px solid #89b4fa; border-radius:4px; font-weight:bold; cursor:pointer;" title="Edit Fx expression">{Fx}</button>' : '') +
+             '</div></div>';
+        if (isFx) {
+            if (el.fxExpr) {
+                var exprPreview = el.fxExpr.length > 25 ? el.fxExpr.substring(0, 25) + '...' : el.fxExpr;
+                h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Fx: ' + exprPreview + '</div>';
+            }
+        } else {
+            h += '<div class="prop-row"><label>Variable</label><select onchange="setProp(\'varName\',this.value)">';
+            Object.keys(variables).forEach(function(k) { h += '<option '+(el.varName===k?'selected':'')+' value="'+k+'">'+k+'</option>'; });
+            h += '</select></div>';
+        }
         h += '<div class="prop-row"><label>Prefix</label><input value="'+(el.prefix||'')+'" onchange="setProp(\'prefix\',this.value)"></div>';
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
+        h += '<div class="prop-row"><label>Align</label><select onchange="setProp(\'align\',this.value)"><option '+(el.align==='left'?'selected':'')+'>left</option><option '+(el.align==='center'?'selected':'')+'>center</option><option '+(el.align==='right'?'selected':'')+'>right</option></select></div>';
+        
+        var isColorFx = !!el.isColorFx;
+        h += '<div class="prop-row"><label>Text color</label>' +
+             '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
+             (isColorFx ? '<span style="font-size:11px; color:#89b4fa; flex:1;">Dynamic (Fx)</span>' : '<input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)" style="width:32px; height:24px; padding:0; flex:none;">') +
+             '<input type="checkbox" '+(isColorFx?'checked':'')+' onchange="toggleUseColorFx('+el.id+', this.checked)" title="Use Fx for text color">' +
+             (isColorFx ? '<button onclick="openFxEditor('+el.id+', \'colorFx\')" style="width:auto; margin:0; padding:2px 8px; background:#89b4fa; color:#1e1e2e; border:1px solid #89b4fa; border-radius:4px; font-weight:bold; cursor:pointer;" title="Edit color expression">{Fx}</button>' : '') +
+             '</div></div>';
+        if (isColorFx && el.colorFx) {
+            var colorFxPreview = el.colorFx.length > 25 ? el.colorFx.substring(0, 25) + '...' : el.colorFx;
+            h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Color Fx: ' + colorFxPreview + '</div>';
+        }
+        var isWrap = el.wrap !== false;
+        h += '<div class="prop-row"><label>Auto wrap</label><input type="checkbox" '+(isWrap?'checked':'')+' onchange="setProp(\'wrap\',this.checked)"></div>';
     }
     if (el.type === 'line') {
-        h += '<div class="prop-row"><label>Chiều dài</label><input type="number" value="'+el.lineWidth+'" onchange="setProp(\'lineWidth\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Độ dày</label><input type="number" step="0.5" value="'+el.lineWeight+'" onchange="setProp(\'lineWeight\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Length</label><input type="number" value="'+el.lineWidth+'" onchange="setProp(\'lineWidth\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Thickness</label><input type="number" step="0.5" value="'+el.lineWeight+'" onchange="setProp(\'lineWeight\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
     }
     if (el.type === 'rect') {
         h += '<div class="prop-row"><label>Width</label><input type="number" value="'+el.rectW+'" onchange="setProp(\'rectW\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Height</label><input type="number" value="'+el.rectH+'" onchange="setProp(\'rectH\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Bo tròn</label><input type="number" value="'+el.radius+'" onchange="setProp(\'radius\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Viền</label><input type="number" step="0.5" value="'+el.lineWeight+'" onchange="setProp(\'lineWeight\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu viền</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Radius</label><input type="number" value="'+el.radius+'" onchange="setProp(\'radius\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border</label><input type="number" step="0.5" value="'+el.lineWeight+'" onchange="setProp(\'lineWeight\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
     }
     if (el.type === 'shape') {
-        h += '<div class="prop-row"><label>Loại hình</label><select onchange="setProp(\'shapeType\',this.value)">';
-        h += '<option value="rect" '+(el.shapeType==='rect'?'selected':'')+'>Hình chữ nhật</option>';
-        h += '<option value="line" '+(el.shapeType==='line'?'selected':'')+'>Đường thẳng</option>';
-        h += '<option value="ellipse" '+(el.shapeType==='ellipse'?'selected':'')+'>Hình tròn/Ellipse</option>';
-        h += '<option value="polygon" '+(el.shapeType==='polygon'?'selected':'')+'>Đa giác/Gấp khúc</option>';
+        h += '<div class="prop-row"><label>Shape type</label><select onchange="setProp(\'shapeType\',this.value)">';
+        h += '<option value="rect" '+(el.shapeType==='rect'?'selected':'')+'>Rectangle</option>';
+        h += '<option value="line" '+(el.shapeType==='line'?'selected':'')+'>Line</option>';
+        h += '<option value="ellipse" '+(el.shapeType==='ellipse'?'selected':'')+'>Circle/Ellipse</option>';
+        h += '<option value="polygon" '+(el.shapeType==='polygon'?'selected':'')+'>Polygon/Polyline</option>';
         h += '</select></div>';
         
-        h += '<div class="prop-row"><label>Cỡ rộng (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
-        h += '<div class="prop-row"><label>Cỡ cao (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Độ dày viền</label><input type="number" step="0.5" value="'+el.lineWidth+'" onchange="setProp(\'lineWidth\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu viền</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
-        h += '<div class="prop-row"><label>Góc xoay (°)</label><input type="number" value="'+(el.rotate||0)+'" onchange="setProp(\'rotate\',+this.value)" min="-360" max="360"></div>';
+        h += '<div class="prop-row"><label>Width (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+el.lineWidth+'" onchange="setProp(\'lineWidth\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Rotation (°)</label><input type="number" value="'+(el.rotate||0)+'" onchange="setProp(\'rotate\',+this.value)" min="-360" max="360"></div>';
         
         if (el.shapeType !== 'line') {
-            h += '<div class="prop-row"><label>Màu nền</label><input type="color" value="'+((el.fillColor && el.fillColor.startsWith('#')) ? el.fillColor : '#ffffff')+'" onchange="setProp(\'fillColor\',this.value)">';
-            h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'fillColor\',\'\')">Xóa nền</button></div>';
+            h += '<div class="prop-row"><label>Fill color</label><input type="color" value="'+((el.fillColor && el.fillColor.startsWith('#')) ? el.fillColor : '#ffffff')+'" onchange="setProp(\'fillColor\',this.value)">';
+            h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'fillColor\',\'\')">Clear fill</button></div>';
         }
         
         if (el.shapeType === 'rect') {
-            h += '<div class="prop-row"><label>Bo tròn (rx)</label><input type="number" value="'+(el.radius||0)+'" onchange="setProp(\'radius\',+this.value)"></div>';
+            h += '<div class="prop-row"><label>Radius (rx)</label><input type="number" value="'+(el.radius||0)+'" onchange="setProp(\'radius\',+this.value)"></div>';
         }
         
         if (el.shapeType === 'polygon') {
-            h += '<div class="prop-row" style="align-items:flex-start;"><label>Tọa độ (points)</label>';
-            h += '<textarea onchange="setProp(\'points\',this.value)" placeholder="x1,y1 x2,y2 x3,y3" style="height:60px;">'+(el.points||'')+'</textarea></div>';
-            h += '<div class="prop-row"><label>Khép kín</label><input type="checkbox" '+(el.close?'checked':'')+' onchange="setProp(\'close\',this.checked)"></div>';
+            var sides = el.sides || 3;
+            h += '<div class="prop-row"><label>Sides</label><input type="number" min="3" max="50" value="'+sides+'" onchange="setProp(\'sides\',+this.value); generatePolygonPointsFromSides();"></div>';
+            h += '<div class="prop-row" style="align-items:flex-start;"><label>Points</label>';
+            h += '<textarea id="polygonPointsTextarea" onchange="setProp(\'points\',this.value)" placeholder="x1,y1 x2,y2 x3,y3" style="height:60px;">'+(el.points||'')+'</textarea></div>';
+            h += '<div class="prop-row"><label>Closed</label><input type="checkbox" '+(el.close?'checked':'')+' onchange="setProp(\'close\',this.checked)"></div>';
         }
     }
     if (el.type === 'image') {
-        h += '<div class="prop-row"><label>Gán biến</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- Không gán --</option>';
+        h += '<div class="prop-row"><label>Bind variable</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- None --</option>';
         Object.keys(variables).forEach(function(k) {
             if (isImageVal(variables[k])) {
                 h += '<option '+(el.dataVar===k?'selected':'')+' value="'+k+'">'+k+'</option>';
@@ -801,63 +1189,63 @@ function renderProps() {
         h += '</select></div>';
         
         var isVarBound = !!el.dataVar;
-        h += '<div class="prop-row"><label>Đường dẫn (URL)</label><input type="text" value="'+(isVarBound ? 'Lấy từ biến: ' + el.dataVar : (el.imageSrc.startsWith('data:') ? 'Ảnh Base64 đã nhúng' : el.imageSrc))+'" ' + (isVarBound || el.imageSrc.startsWith('data:') ? 'disabled' : '') + ' onchange="setProp(\'imageSrc\',this.value)" placeholder="Nhập URL ảnh..."></div>';
+        h += '<div class="prop-row"><label>Image source</label><input type="text" value="'+(isVarBound ? 'From variable: ' + el.dataVar : (el.imageSrc.startsWith('data:') ? 'Embedded Base64 Image' : el.imageSrc))+'" ' + (isVarBound || el.imageSrc.startsWith('data:') ? 'disabled' : '') + ' onchange="setProp(\'imageSrc\',this.value)" placeholder="Enter image URL..."></div>';
         
         if (!isVarBound) {
-            h += '<div class="prop-row"><label>Tải ảnh local</label><input type="file" accept="image/*,image/svg+xml" onchange="uploadImage(event)" style="display:none;" id="imgUploadInput">';
-            h += '<button onclick="document.getElementById(\'imgUploadInput\').click()" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;">Chọn file ảnh...</button></div>';
+            h += '<div class="prop-row"><label>Upload image</label><input type="file" accept="image/*,image/svg+xml" onchange="uploadImage(event)" style="display:none;" id="imgUploadInput">';
+            h += '<button onclick="document.getElementById(\'imgUploadInput\').click()" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;">Choose image file...</button></div>';
             var defaultBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==';
             if (el.imageSrc && el.imageSrc !== defaultBase64 && el.imageSrc.startsWith('data:')) {
-                h += '<div class="prop-row"><label></label><button onclick="setProp(\'imageSrc\',\''+defaultBase64+'\')" style="background:#313244;color:#f38ba8;border:1px solid #f38ba8;border-radius:4px;cursor:pointer;">Xóa ảnh nhúng</button></div>';
+                h += '<div class="prop-row"><label></label><button onclick="setProp(\'imageSrc\',\''+defaultBase64+'\')" style="background:#313244;color:#f38ba8;border:1px solid #f38ba8;border-radius:4px;cursor:pointer;">Delete image</button></div>';
             }
         } else {
             var valPreview = variables[el.dataVar] ? variables[el.dataVar].toString() : '';
             if (valPreview.length > 25) valPreview = valPreview.substring(0, 25) + '...';
-            h += '<div class="prop-row" style="color: #89b4fa; font-size: 11px; padding-left: 74px;">Giá trị biến: ' + valPreview + '</div>';
+            h += '<div class="prop-row" style="color: #89b4fa; font-size: 11px; padding-left: 74px;">Variable value: ' + valPreview + '</div>';
         }
         
-        h += '<div class="prop-row"><label>Cỡ rộng (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
-        h += '<div class="prop-row"><label>Cỡ cao (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Width (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
     }
     if (el.type === 'table') {
         h += '<div class="prop-row"><label>Headers</label><input value="'+el.headers.join(',')+'" onchange="setProp(\'headers\',this.value.split(\',\'))"></div>';
-        h += '<div class="prop-row"><label>Hiện header</label><input type="checkbox" '+(el.showHeader!==false?'checked':'')+' onchange="setProp(\'showHeader\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Gán biến</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- Không gán --</option>';
+        h += '<div class="prop-row"><label>Show header</label><input type="checkbox" '+(el.showHeader!==false?'checked':'')+' onchange="setProp(\'showHeader\',this.checked)"></div>';
+        h += '<div class="prop-row"><label>Bind variable</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- None --</option>';
         Object.keys(variables).forEach(function(k) {
             if (Array.isArray(variables[k])) {
                 h += '<option '+(el.dataVar===k?'selected':'')+' value="'+k+'">'+k+'</option>';
             }
         });
         h += '</select></div>';
-        h += '<div class="prop-row"><label>Trường map</label><input value="'+(el.fieldMappings||'')+'" onchange="setProp(\'fieldMappings\',this.value)" placeholder="stt,ten,so_luong" title="Thuộc tính các cột cách nhau bằng dấu phẩy"></div>';
+        h += '<div class="prop-row"><label>Field mappings</label><input value="'+(el.fieldMappings||'')+'" onchange="setProp(\'fieldMappings\',this.value)" placeholder="no,name,quantity" title="Comma-separated column fields"></div>';
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
-        h += '<div class="prop-row"><label>Widths</label><input value="'+el.widths+'" onchange="setProp(\'widths\',this.value)" placeholder="*,*,* hoặc 30,*,80"></div>';
+        h += '<div class="prop-row"><label>Widths</label><input value="'+el.widths+'" onchange="setProp(\'widths\',this.value)" placeholder="*,*,* or 30,*,80"></div>';
         h += '<div class="prop-row"><label>Header bold</label><input type="checkbox" '+(el.headerBold?'checked':'')+' onchange="setProp(\'headerBold\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>H. Aligns</label><input value="'+(el.headerAligns||'center')+'" onchange="setProp(\'headerAligns\',this.value)" placeholder="center,left,right" title="Canh lề header từng cột, phân cách bằng dấu phẩy"></div>';
-        h += '<div class="prop-row"><label>B. Aligns</label><input value="'+(el.bodyAligns||'left')+'" onchange="setProp(\'bodyAligns\',this.value)" placeholder="left,center,right" title="Canh lề body từng cột, phân cách bằng dấu phẩy"></div>';
+        h += '<div class="prop-row"><label>Header aligns</label><input value="'+(el.headerAligns||'center')+'" onchange="setProp(\'headerAligns\',this.value)" placeholder="center,left,right" title="Comma-separated header alignments"></div>';
+        h += '<div class="prop-row"><label>Body aligns</label><input value="'+(el.bodyAligns||'left')+'" onchange="setProp(\'bodyAligns\',this.value)" placeholder="left,center,right" title="Comma-separated body alignments"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Màu chữ</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu nền cột</label><input value="'+(el.colFills||'')+'" onchange="setProp(\'colFills\',this.value)" placeholder="VD: #eee,,#fff" title="Màu nền từng cột, phân cách bằng dấu phẩy"></div>';
-        h += '<div class="prop-row"><label>Dòng lẻ (Odd)</label><input type="color" value="'+((el.oddRowFill && el.oddRowFill.startsWith('#')) ? el.oddRowFill : '#ffffff')+'" onchange="setProp(\'oddRowFill\',this.value)">';
-        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'oddRowFill\',\'\')">Xóa</button></div>';
-        h += '<div class="prop-row"><label>Dòng chẵn (Even)</label><input type="color" value="'+((el.evenRowFill && el.evenRowFill.startsWith('#')) ? el.evenRowFill : '#ffffff')+'" onchange="setProp(\'evenRowFill\',this.value)">';
-        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'evenRowFill\',\'\')">Xóa</button></div>';
+        h += '<div class="prop-row"><label>Text color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Col backgrounds</label><input value="'+(el.colFills||'')+'" onchange="setProp(\'colFills\',this.value)" placeholder="e.g. #eee,,#fff" title="Comma-separated column background colors"></div>';
+        h += '<div class="prop-row"><label>Odd row bg</label><input type="color" value="'+((el.oddRowFill && el.oddRowFill.startsWith('#')) ? el.oddRowFill : '#ffffff')+'" onchange="setProp(\'oddRowFill\',this.value)">';
+        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'oddRowFill\',\'\')">Clear</button></div>';
+        h += '<div class="prop-row"><label>Even row bg</label><input type="color" value="'+((el.evenRowFill && el.evenRowFill.startsWith('#')) ? el.evenRowFill : '#ffffff')+'" onchange="setProp(\'evenRowFill\',this.value)">';
+        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'evenRowFill\',\'\')">Clear</button></div>';
         h += '<div class="prop-row"><label>Border</label><input type="checkbox" '+(el.showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Border W</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu border</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
     }
     if (el.type === 'columns') {
-        h += '<div class="prop-row"><label>Trái</label><textarea onchange="setProp(\'left\',this.value)">'+el.left+'</textarea></div>';
-        h += '<div class="prop-row"><label>Align Trái</label><select onchange="setProp(\'leftAlign\',this.value)">' +
+        h += '<div class="prop-row"><label>Left column</label><textarea onchange="setProp(\'left\',this.value)">'+el.left+'</textarea></div>';
+        h += '<div class="prop-row"><label>Left align</label><select onchange="setProp(\'leftAlign\',this.value)">' +
              '<option '+(el.leftAlign==='left'?'selected':'')+' value="left">left</option>' +
              '<option '+(el.leftAlign==='center'?'selected':'')+' value="center">center</option>' +
              '<option '+(el.leftAlign==='right'?'selected':'')+' value="right">right</option>' +
              '<option '+(el.leftAlign==='justify'?'selected':'')+' value="justify">justify</option>' +
              '</select></div>';
-        h += '<div class="prop-row"><label>Phải</label><textarea onchange="setProp(\'right\',this.value)">'+el.right+'</textarea></div>';
-        h += '<div class="prop-row"><label>Align Phải</label><select onchange="setProp(\'rightAlign\',this.value)">' +
+        h += '<div class="prop-row"><label>Right column</label><textarea onchange="setProp(\'right\',this.value)">'+el.right+'</textarea></div>';
+        h += '<div class="prop-row"><label>Right align</label><select onchange="setProp(\'rightAlign\',this.value)">' +
              '<option '+(el.rightAlign==='left'?'selected':'')+' value="left">left</option>' +
              '<option '+(el.rightAlign==='center'?'selected':'')+' value="center">center</option>' +
              '<option '+(el.rightAlign==='right'?'selected':'')+' value="right">right</option>' +
@@ -867,20 +1255,55 @@ function renderProps() {
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
     }
     if (el.type === 'panel') {
-        h += '<div class="prop-row"><label>Cỡ rộng (W)</label><input type="number" value="'+el.width+'" onchange="setProp(\'width\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Cỡ cao (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu nền</label><input type="color" value="'+((el.bgColor && el.bgColor.startsWith('#')) ? el.bgColor : '#ffffff')+'" onchange="setProp(\'bgColor\',this.value)">';
-        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'bgColor\',\'transparent\')">Xóa</button></div>';
-        h += '<div class="prop-row"><label>Độ dày viền</label><input type="number" value="'+(el.borderWidth||0)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Màu viền</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#cbd5e1')+'" onchange="setProp(\'borderColor\',this.value)">';
-        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Xóa</button></div>';
+        h += '<div class="prop-row"><label>Width (W)</label><input type="number" value="'+el.width+'" onchange="setProp(\'width\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Bg color</label><input type="color" value="'+((el.bgColor && el.bgColor.startsWith('#')) ? el.bgColor : '#ffffff')+'" onchange="setProp(\'bgColor\',this.value)">';
+        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'bgColor\',\'transparent\')">Clear</button></div>';
+        h += '<div class="prop-row"><label>Border width</label><input type="number" value="'+(el.borderWidth||0)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#cbd5e1')+'" onchange="setProp(\'borderColor\',this.value)">';
+        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Clear</button></div>';
     }
     
     h += '<div style="margin-top:10px; display:flex; gap:6px;">';
-    h += '<button style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px;" class="danger" onclick="deleteElement('+el.id+')"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>Xóa</button>';
+    h += '<button style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px;" class="danger" onclick="deleteElement('+el.id+')"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>Delete</button>';
     h += '</div>';
     
     panel.innerHTML = h;
+}
+
+function generatePolygonPoints(sides, w, h) {
+    var pts = [];
+    var cx = w / 2;
+    var cy = h / 2;
+    var rx = w / 2;
+    var ry = h / 2;
+    var startAngle = -Math.PI / 2;
+    for (var i = 0; i < sides; i++) {
+        var angle = startAngle + (i * 2 * Math.PI / sides);
+        var x = cx + rx * Math.cos(angle);
+        var y = cy + ry * Math.sin(angle);
+        pts.push(Math.round(x * 10) / 10 + ',' + Math.round(y * 10) / 10);
+    }
+    return pts.join(' ');
+}
+
+function generatePolygonPointsFromSides() {
+    if (!selectedId) return;
+    var el = elements.find(function(e) { return e.id === selectedId; });
+    if (!el || el.type !== 'shape' || el.shapeType !== 'polygon') return;
+    
+    var sides = el.sides || 3;
+    var w = getParsedWidth(el.width || 100);
+    var h = el.height || 50;
+    
+    var pointsStr = generatePolygonPoints(sides, w, h);
+    el.points = pointsStr;
+    
+    var textarea = document.getElementById('polygonPointsTextarea');
+    if (textarea) {
+        textarea.value = pointsStr;
+    }
+    render();
 }
 
 function setProp(k, v) {
@@ -894,18 +1317,32 @@ function setProp(k, v) {
     
     el[k] = v;
     
-    if (el.type === 'shape' && k === 'shapeType') {
-        if (v === 'polygon') {
-            el.points = el.points || '0,50 50,0 100,50';
-            el.close = (el.close !== undefined) ? el.close : true;
-        } else if (v === 'ellipse') {
-            el.radius = undefined;
-        } else if (v === 'rect') {
-            el.radius = el.radius || 0;
+    if (el.type === 'shape') {
+        if (k === 'shapeType') {
+            if (v === 'polygon') {
+                el.sides = el.sides || 3;
+                var w = getParsedWidth(el.width || 100);
+                var h = el.height || 50;
+                el.points = generatePolygonPoints(el.sides, w, h);
+                el.close = (el.close !== undefined) ? el.close : true;
+            } else if (v === 'ellipse') {
+                el.radius = undefined;
+            } else if (v === 'rect') {
+                el.radius = el.radius || 0;
+            }
+        } else if (k === 'width' || k === 'height') {
+            if (el.shapeType === 'polygon' && el.sides) {
+                var w = getParsedWidth(el.width || 100);
+                var h = el.height || 50;
+                el.points = generatePolygonPoints(el.sides, w, h);
+            }
         }
     }
     
     render();
+    if (k === 'shapeType' || k === 'dataVar' || k === 'isFx') {
+        renderProps();
+    }
 }
 
 function setPageConfig(k, v) {
@@ -932,14 +1369,14 @@ function renderOutline() {
     if (!outline) return;
     
     if (elements.length === 0) {
-        outline.innerHTML = '<span style="color:#6c7086; font-size:11px; padding: 4px;">Chưa có element nào</span>';
+        outline.innerHTML = '<span style="color:#6c7086; font-size:11px; padding: 4px;">No elements added yet</span>';
         return;
     }
     
     var html = '';
     
     function renderElementOutlineItem(el, depth) {
-        var isSelected = (el.id === selectedId);
+        var isSelected = (selectedIds.indexOf(el.id) !== -1);
         var label = getElementOutlineLabel(el);
         var typeStr = el.type;
         if (el.type === 'shape') {
@@ -948,18 +1385,20 @@ function renderOutline() {
         
         var indentStyle = depth > 0 ? ' margin-left: ' + (depth * 16) + 'px;' : '';
         var indentPrefix = depth > 0 ? '<span style="color:#6c7086; margin-right:4px;">↳</span>' : '';
+        var isVisible = isElementVisible(el, variables);
+        var opacityStyle = isVisible ? '' : ' opacity: 0.65;';
         
-        html += '<div class="outline-item' + (isSelected ? ' selected' : '') + '" style="cursor:pointer;' + indentStyle + '" onclick="selectElement(' + el.id + ')">';
+        html += '<div class="outline-item' + (isSelected ? ' selected' : '') + '" style="cursor:pointer;' + indentStyle + opacityStyle + '" onclick="selectElement(' + el.id + ', event)">';
         html += '<div class="el-info">';
         html += indentPrefix;
         html += '<span class="el-type-badge">' + typeStr.toUpperCase() + '</span>';
-        html += '<span ondblclick="renameElementOutline(' + el.id + ', event)" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px; font-size:11px;" title="Double click để đổi tên: ' + label + '">' + label + '</span>';
+        html += '<span ondblclick="renameElementOutline(' + el.id + ', event)" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px; font-size:11px;" title="Double click to rename: ' + label + '">' + label + '</span>';
         html += '</div>';
         html += '<div class="actions" onclick="event.stopPropagation();">';
-        html += '<span onclick="renameElementOutline(' + el.id + ', event)" style="cursor:pointer; color:#89b4fa; display:inline-flex; align-items:center;" title="Đổi tên gợi nhớ"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>';
-        html += '<span onclick="moveElement(' + el.id + ', \'down\')" style="cursor:pointer; color:#a6adc8; display:inline-flex; align-items:center;" title="Đưa lên trên (z-index)"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></span>';
-        html += '<span onclick="moveElement(' + el.id + ', \'up\')" style="cursor:pointer; color:#a6adc8; display:inline-flex; align-items:center;" title="Đưa xuống dưới (z-index)"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></span>';
-        html += '<span onclick="deleteElement(' + el.id + ')" style="cursor:pointer; color:#f38ba8; display:inline-flex; align-items:center;" title="Xóa"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></span>';
+        html += '<span onclick="renameElementOutline(' + el.id + ', event)" style="cursor:pointer; color:#89b4fa; display:inline-flex; align-items:center;" title="Rename layer"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>';
+        html += '<span onclick="moveElement(' + el.id + ', \'down\')" style="cursor:pointer; color:#a6adc8; display:inline-flex; align-items:center;" title="Bring forward (z-index)"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></span>';
+        html += '<span onclick="moveElement(' + el.id + ', \'up\')" style="cursor:pointer; color:#a6adc8; display:inline-flex; align-items:center;" title="Send backward (z-index)"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg></span>';
+        html += '<span onclick="deleteElement(' + el.id + ')" style="cursor:pointer; color:#f38ba8; display:inline-flex; align-items:center;" title="Delete"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></span>';
         html += '</div>';
         html += '</div>';
         
@@ -994,7 +1433,7 @@ function renameElementOutline(id, event) {
     if (!el) return;
     
     var defaultName = el.customName || '';
-    var newName = prompt("Nhập tên gợi nhớ mới cho phần tử:", defaultName);
+    var newName = prompt("Enter new layer name for element:", defaultName);
     if (newName !== null) {
         el.customName = newName.trim();
         render();
@@ -1012,22 +1451,22 @@ function getElementOutlineLabel(el) {
         case 'var':
             return '{' + el.varName + '}';
         case 'line':
-            return 'Đoạn (W: ' + el.lineWidth + ')';
+            return 'Line (W: ' + el.lineWidth + ')';
         case 'rect':
-            return 'Hộp (W: ' + el.rectW + ', H: ' + el.rectH + ')';
+            return 'Rectangle (W: ' + el.rectW + ', H: ' + el.rectH + ')';
         case 'shape':
-            var types = { rect: 'Hộp', line: 'Đoạn thẳng', ellipse: 'Tròn/Ellipse', polygon: 'Đa giác' };
+            var types = { rect: 'Rect', line: 'Line', ellipse: 'Circle/Ellipse', polygon: 'Polygon' };
             return (types[el.shapeType] || 'Shape') + ' (' + el.width + 'x' + el.height + ')';
         case 'image':
-            return el.dataVar ? 'Ảnh {' + el.dataVar + '}' : 'Ảnh';
+            return el.dataVar ? 'Image {' + el.dataVar + '}' : 'Image';
         case 'table':
-            return 'Bảng (' + el.headers.length + ' cột)';
+            return 'Table (' + el.headers.length + ' cols)';
         case 'columns':
-            return '2 Cột';
+            return '2 Columns';
         case 'panel':
             return 'Panel #' + el.id;
         case 'pagebreak':
-            return 'Ngắt trang (Y: ' + el.y + ')';
+            return 'Page Break (Y: ' + el.y + ')';
     }
     return 'Element';
 }
@@ -1050,17 +1489,17 @@ function renderVarList() {
         } else {
             svgIcon = '<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"></path><path d="M20 5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4"></path><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>';
         }
-        var label = k + (isArr ? ' (Mảng)' : (isImg ? ' (Ảnh)' : ''));
+        var label = k + (isArr ? ' (Array)' : (isImg ? ' (Image)' : ''));
         
         html += '<div class="pal-item" style="font-size:11px; display:flex; justify-content:space-between; align-items:center; width:100%; padding: 4px 6px;">';
         if (isArr) {
-            html += '<div style="display:flex; align-items:center; gap:6px; opacity:0.8; cursor:default; flex:1;" title="Biến dạng mảng dùng để gán cho Table"><span class="icon" style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;">' + svgIcon + '</span>' + label + '</div>';
+            html += '<div style="display:flex; align-items:center; gap:6px; opacity:0.8; cursor:default; flex:1;" title="Array variable for binding to tables"><span class="icon" style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;">' + svgIcon + '</span>' + label + '</div>';
         } else {
-            html += '<div onclick="addVarElement(\''+k+'\')" style="display:flex; align-items:center; gap:6px; cursor:pointer; flex:1;" title="Click để thêm vào Report"><span class="icon" style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;">'+svgIcon+'</span>'+k+'</div>';
+            html += '<div onclick="addVarElement(\''+k+'\')" style="display:flex; align-items:center; gap:6px; cursor:pointer; flex:1;" title="Click to add to report"><span class="icon" style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;">'+svgIcon+'</span>'+k+'</div>';
         }
         html += '<div style="display:flex; gap:6px; align-items:center;">';
-        html += '<span onclick="editVar(\''+k+'\', event)" style="cursor:pointer; color:#89b4fa; display:inline-flex; align-items:center;" title="Sửa biến"><svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>';
-        html += '<span onclick="deleteVar(\''+k+'\', event)" style="cursor:pointer; color:#f38ba8; display:inline-flex; align-items:center;" title="Xóa biến"><svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></span>';
+        html += '<span onclick="editVar(\''+k+'\', event)" style="cursor:pointer; color:#89b4fa; display:inline-flex; align-items:center;" title="Edit variable"><svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>';
+        html += '<span onclick="deleteVar(\''+k+'\', event)" style="cursor:pointer; color:#f38ba8; display:inline-flex; align-items:center;" title="Delete variable"><svg viewBox="0 0 24 24" width="11" height="11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></span>';
         html += '</div>';
         html += '</div>';
     });
@@ -1071,11 +1510,11 @@ function addVarElement(key) {
     var val = variables[key];
     var isImg = isImageVal(val);
     
-    var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24 };
+    var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     if (isImg) {
         Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, dataVar:key });
     } else {
-        Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200 });
+        Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
     }
     elements.push(el);
     selectElement(el.id);
@@ -1083,12 +1522,12 @@ function addVarElement(key) {
 }
 
 function addNewVar() {
-    document.getElementById('varModalTitle').textContent = 'Thêm Biến Mới';
+    document.getElementById('varModalTitle').textContent = 'Add New Variable';
     document.getElementById('varNameInput').value = '';
     document.getElementById('varNameInput').disabled = false;
     document.getElementById('varTypeSelect').value = 'string';
     document.getElementById('varValueInput').value = '';
-    document.getElementById('varValueInput').placeholder = 'Nhập giá trị chữ mẫu';
+    document.getElementById('varValueInput').placeholder = 'Enter mock string value';
     document.getElementById('varImageUrlInput').value = '';
     document.getElementById('varImagePreview').src = '';
     document.getElementById('varImagePreview').style.display = 'none';
@@ -1300,10 +1739,30 @@ function getElementWidth(el) {
 function elementToNode(el, imagesDict) {
     switch(el.type) {
         case 'text':
-            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: el.color, width: el.width };
+            var textColor = el.color;
+            if (el.isColorFx && el.colorFx) {
+                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
+                    textColor = evaluatedColor;
+                }
+            }
+            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width };
         case 'var':
-            var val = (el.prefix||'') + (variables[el.varName] || '');
-            return { text: val, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: el.color || '#000', width: el.width };
+            var displayVal = '';
+            if (el.isFx) {
+                displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+            } else {
+                displayVal = variables[el.varName] !== undefined ? variables[el.varName] : '';
+            }
+            var val = (el.prefix||'') + displayVal;
+            var textColor = el.color || '#000000';
+            if (el.isColorFx && el.colorFx) {
+                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
+                    textColor = evaluatedColor;
+                }
+            }
+            return { text: val, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
         case 'line':
             return { canvas: [{ type:'line', x1:0, y1:0, x2:el.lineWidth, y2:0, lineWidth:el.lineWeight, lineColor:el.color }] };
         case 'rect':
@@ -1434,7 +1893,7 @@ function elementToNode(el, imagesDict) {
                                 var svgString = atob(base64Part);
                                 return { svg: svgString, width: el.width || 100, height: el.height || 100 };
                             } catch (err2) {
-                                console.error('Lỗi giải mã SVG base64:', err2);
+                                console.error('SVG decode error:', err2);
                             }
                         }
                     } else {
@@ -1451,7 +1910,7 @@ function elementToNode(el, imagesDict) {
                 }
                 return { image: imgKey, width: el.width || 100, height: el.height || 100 };
             }
-            return { text: '[Không có ảnh]', fontSize: 11, italics: true };
+            return { text: '[No image]', fontSize: 11, italics: true };
         case 'panel':
             var children = elements.filter(function(e) { return e.parentId === el.id; });
             var childrenLayout = buildLayout(children, 0, 0, imagesDict);
@@ -1486,8 +1945,10 @@ function elementToNode(el, imagesDict) {
 function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pageBreakYs) {
     var content = [];
     
-    // Filter out pagebreak elements from the layout calculations
-    var layoutElements = elementsList.filter(function(e) { return e.type !== 'pagebreak'; });
+    // Filter out pagebreak and hidden elements from the layout calculations
+    var layoutElements = elementsList.filter(function(e) {
+        return e.type !== 'pagebreak' && isElementVisible(e, variables);
+    });
     if (layoutElements.length === 0) return content;
 
     var activePBs = pageBreakYs ? pageBreakYs.slice() : [];
@@ -1552,7 +2013,7 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         if (gapY < 0) gapY = 0;
 
         var currentRowBottom = Math.max.apply(null, row.map(function(e){
-            return e.y + getElementHeight(e);
+            return e.y + getElementHeight(e, variables);
         }));
 
         var rowNode = null;
@@ -1725,13 +2186,244 @@ function handleImport(e) {
             if (data.orient) pageConfig.paperOrient = data.orient;
             idCounter = elements.reduce(function(m,e){return Math.max(m,e.id);},0);
             selectedId = null;
+            selectedIds = [];
+            updateAlignToolbar();
             changePaper();
             render();
             renderProps();
-        } catch(err) { alert('File JSON không hợp lệ: ' + err.message); }
+        } catch(err) { alert('Invalid JSON file: ' + err.message); }
     };
     reader.readAsText(file);
     e.target.value = '';
+}
+
+function viewJSON() {
+    var data = { elements: elements, variables: variables, paper: pageConfig.paperSize, orient: pageConfig.paperOrient, pageConfig: pageConfig };
+    document.getElementById('jsonTextArea').value = JSON.stringify(data, null, 2);
+    document.getElementById('jsonModal').classList.add('show');
+}
+function closeJSONModal() {
+    document.getElementById('jsonModal').classList.remove('show');
+}
+function copyJSON() {
+    var txt = document.getElementById('jsonTextArea').value;
+    navigator.clipboard.writeText(txt).then(function() {
+        alert('JSON configuration copied to clipboard!');
+    }, function() {
+        var textarea = document.getElementById('jsonTextArea');
+        textarea.select();
+        document.execCommand('copy');
+        alert('JSON configuration copied to clipboard!');
+    });
+}
+function applyJSON() {
+    try {
+        var data = JSON.parse(document.getElementById('jsonTextArea').value);
+        if (!data.elements) {
+            alert('Invalid JSON configuration: Missing "elements" field');
+            return;
+        }
+        elements = data.elements || [];
+        variables = data.variables || variables;
+        pageConfig = data.pageConfig || {
+            bgColor: '#ffffff',
+            marginLeft: 20,
+            marginTop: 20,
+            marginRight: 20,
+            marginBottom: 20,
+            defaultFont: 'Roboto'
+        };
+        if (data.paper) pageConfig.paperSize = data.paper;
+        if (data.orient) pageConfig.paperOrient = data.orient;
+        idCounter = elements.reduce(function(m,e){return Math.max(m,e.id);},0);
+        selectedId = null;
+        selectedIds = [];
+        updateAlignToolbar();
+        changePaper();
+        render();
+        renderProps();
+        closeJSONModal();
+        alert('JSON configuration applied successfully!');
+    } catch(err) {
+        alert('JSON parse error: ' + err.message);
+    }
+}
+
+var currentFxElId = null;
+var currentFxPropName = null;
+
+function openFxEditor(elId, propName) {
+    var el = elements.find(function(e) { return e.id === elId; });
+    if (!el) return;
+    
+    currentFxElId = elId;
+    currentFxPropName = propName;
+    
+    var title = '';
+    var desc = '';
+    var val = '';
+    var placeholder = '';
+    
+    if (propName === 'fxExpr') {
+        title = 'Fx Expression Editor (Variable)';
+        desc = 'Enter JavaScript expression to calculate this variable\'s value. The returned result will be rendered on the document. Variables are accessed via the <code>$data</code> object.';
+        val = el.fxExpr || '';
+        placeholder = 'e.g., $data.patient_name.toUpperCase() or $data.patient_age >= 18 ? \'Adult\' : \'Minor\'';
+    } else if (propName === 'showFx') {
+        title = 'Visibility Expression Editor (Fx)';
+        desc = 'Enter JavaScript condition to determine if this element should be visible. If it returns <strong>true</strong> (or truthy), the element is shown. If it returns <strong>false</strong> (or falsy), it is excluded from the PDF. Variables are accessed via the <code>$data</code> object.';
+        val = el.showFx || '';
+        placeholder = 'e.g., $data.medications.length > 0 or $data.clinic_phone !== \'\'';
+    } else if (propName === 'colorFx') {
+        title = 'Text Color Expression Editor (Fx)';
+        desc = 'Enter JavaScript expression returning a color value for this element. The result must be a valid color string (CSS or Hex). Variables are accessed via the <code>$data</code> object.';
+        val = el.colorFx || '';
+        placeholder = 'e.g., $data.patient_age > 30 ? \'red\' : \'#000000\'';
+    }
+    
+    document.getElementById('fxEditorModalTitle').innerText = title;
+    document.getElementById('fxEditorModalDescription').innerHTML = desc;
+    var textarea = document.getElementById('fxEditorModalInput');
+    textarea.value = val;
+    textarea.placeholder = placeholder;
+    
+    document.getElementById('fxEditorModal').classList.add('show');
+}
+
+function closeFxEditorModal() {
+    document.getElementById('fxEditorModal').classList.remove('show');
+    currentFxElId = null;
+    currentFxPropName = null;
+}
+
+function saveFxEditorModal() {
+    if (currentFxElId === null || currentFxPropName === null) return;
+    var el = elements.find(function(e) { return e.id === currentFxElId; });
+    if (!el) return;
+    
+    var val = document.getElementById('fxEditorModalInput').value;
+    el[currentFxPropName] = val;
+    
+    render();
+    renderProps();
+    closeFxEditorModal();
+}
+
+function toggleUseVarFx(id, checked) {
+    var el = elements.find(function(e) { return e.id === id; });
+    if (!el) return;
+    el.isFx = checked;
+    render();
+    renderProps();
+    if (checked && !el.fxExpr) {
+        openFxEditor(id, 'fxExpr');
+    }
+}
+
+function toggleUseShowFx(id, checked) {
+    var el = elements.find(function(e) { return e.id === id; });
+    if (!el) return;
+    el.useShowFx = checked;
+    render();
+    renderProps();
+    if (checked && !el.showFx) {
+        openFxEditor(id, 'showFx');
+    }
+}
+
+function toggleUseColorFx(id, checked) {
+    var el = elements.find(function(e) { return e.id === id; });
+    if (!el) return;
+    el.isColorFx = checked;
+    render();
+    renderProps();
+    if (checked && !el.colorFx) {
+        openFxEditor(id, 'colorFx');
+    }
+}
+
+function updateAlignToolbar() {
+    var toolbar = document.getElementById('alignToolbar');
+    if (toolbar) {
+        if (selectedIds.length > 1) {
+            toolbar.style.display = 'flex';
+        } else {
+            toolbar.style.display = 'none';
+        }
+    }
+}
+
+function alignSelected(direction) {
+    if (selectedIds.length <= 1) return;
+    
+    var selectedElements = elements.filter(function(e) {
+        return selectedIds.indexOf(e.id) !== -1;
+    });
+    
+    if (selectedElements.length === 0) return;
+    
+    if (direction === 'left') {
+        var minX = Math.min.apply(null, selectedElements.map(function(e) { return e.x; }));
+        selectedElements.forEach(function(e) {
+            e.x = minX;
+        });
+    } else if (direction === 'right') {
+        var maxRight = Math.max.apply(null, selectedElements.map(function(e) {
+            return e.x + getElementWidth(e);
+        }));
+        selectedElements.forEach(function(e) {
+            e.x = maxRight - getElementWidth(e);
+        });
+    } else if (direction === 'center') {
+        var minX = Math.min.apply(null, selectedElements.map(function(e) { return e.x; }));
+        var maxRight = Math.max.apply(null, selectedElements.map(function(e) {
+            return e.x + getElementWidth(e);
+        }));
+        var midX = minX + (maxRight - minX) / 2;
+        selectedElements.forEach(function(e) {
+            e.x = Math.round(midX - getElementWidth(e) / 2);
+        });
+    } else if (direction === 'top') {
+        var minY = Math.min.apply(null, selectedElements.map(function(e) { return e.y; }));
+        selectedElements.forEach(function(e) {
+            e.y = minY;
+        });
+    } else if (direction === 'bottom') {
+        var maxBottom = Math.max.apply(null, selectedElements.map(function(e) {
+            return e.y + getElementHeight(e);
+        }));
+        selectedElements.forEach(function(e) {
+            e.y = maxBottom - getElementHeight(e);
+        });
+    } else if (direction === 'middle') {
+        var minY = Math.min.apply(null, selectedElements.map(function(e) { return e.y; }));
+        var maxBottom = Math.max.apply(null, selectedElements.map(function(e) {
+            return e.y + getElementHeight(e);
+        }));
+        var midY = minY + (maxBottom - minY) / 2;
+        selectedElements.forEach(function(e) {
+            e.y = Math.round(midY - getElementHeight(e) / 2);
+        });
+    } else if (direction === 'distributeH') {
+        if (selectedElements.length < 3) return;
+        var sorted = selectedElements.slice().sort(function(a, b) { return a.x - b.x; });
+        var span = sorted[sorted.length - 1].x - sorted[0].x;
+        var step = span / (sorted.length - 1);
+        sorted.forEach(function(e, i) {
+            e.x = Math.round(sorted[0].x + i * step);
+        });
+    } else if (direction === 'distributeV') {
+        if (selectedElements.length < 3) return;
+        var sorted = selectedElements.slice().sort(function(a, b) { return a.y - b.y; });
+        var span = sorted[sorted.length - 1].y - sorted[0].y;
+        var step = span / (sorted.length - 1);
+        sorted.forEach(function(e, i) {
+            e.y = Math.round(sorted[0].y + i * step);
+        });
+    }
+    
+    render();
+    renderProps();
 }
 
 function changePaper() {
@@ -1749,33 +2441,78 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closePreview();
         closeVarModal();
+        closeJSONModal();
+        closeFxEditorModal();
         return;
     }
     
-    // Check if an element is selected and user is not typing in inputs
-    if (selectedId !== null) {
+    // Check if elements are selected and user is not typing in inputs
+    if (selectedIds.length > 0) {
         var activeTag = document.activeElement.tagName.toLowerCase();
         if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
             return;
         }
         
-        var el = elements.find(function(item) { return item.id === selectedId; });
-        if (!el) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            var idsToRemove = selectedIds.slice();
+            var allRemoveIds = {};
+            idsToRemove.forEach(function(id) {
+                allRemoveIds[id] = true;
+            });
+            // Include nested children of deleted panels
+            elements.forEach(function(el) {
+                if (el.parentId && allRemoveIds[el.parentId]) {
+                    allRemoveIds[el.id] = true;
+                }
+            });
+            elements = elements.filter(function(el) {
+                return !allRemoveIds[el.id];
+            });
+            selectedIds = [];
+            selectedId = null;
+            updateAlignToolbar();
+            render();
+            renderProps();
+            return;
+        }
+        
+        var selectedElements = elements.filter(function(item) {
+            return selectedIds.indexOf(item.id) !== -1;
+        });
+        
+        if (selectedElements.length === 0) return;
         
         var moved = false;
         var step = e.shiftKey ? 10 : 1;
         
         if (e.key === 'ArrowUp') {
-            el.y = Math.max(0, el.y - step);
+            selectedElements.forEach(function(el) {
+                if (el.parentId && selectedIds.indexOf(el.parentId) !== -1) return;
+                el.y = Math.max(0, el.y - step);
+            });
             moved = true;
         } else if (e.key === 'ArrowDown') {
-            el.y = el.y + step;
+            selectedElements.forEach(function(el) {
+                if (el.parentId && selectedIds.indexOf(el.parentId) !== -1) return;
+                el.y = el.y + step;
+            });
             moved = true;
         } else if (e.key === 'ArrowLeft') {
-            el.x = Math.max(0, el.x - step);
+            selectedElements.forEach(function(el) {
+                if (el.parentId && selectedIds.indexOf(el.parentId) !== -1) return;
+                if (el.type !== 'pagebreak') {
+                    el.x = Math.max(0, el.x - step);
+                }
+            });
             moved = true;
         } else if (e.key === 'ArrowRight') {
-            el.x = el.x + step;
+            selectedElements.forEach(function(el) {
+                if (el.parentId && selectedIds.indexOf(el.parentId) !== -1) return;
+                if (el.type !== 'pagebreak') {
+                    el.x = el.x + step;
+                }
+            });
             moved = true;
         }
         
@@ -1806,6 +2543,145 @@ document.addEventListener('keydown', function(e) {
         var sidebarWidth = window.innerWidth - e.clientX - 3;
         sidebarWidth = Math.max(180, Math.min(500, sidebarWidth));
         app.style.gridTemplateColumns = '200px 1fr 6px ' + sidebarWidth + 'px';
+    }
+
+    function handleMouseUp() {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+    }
+})();
+
+// Live Preview Functions
+function toggleLivePreview() {
+    var btn = document.getElementById('livePreviewBtn');
+    var resizer = document.getElementById('previewResizer');
+    var previewPane = document.querySelector('.preview-pane');
+    var canvasPane = document.querySelector('.canvas-pane');
+    
+    isLivePreviewOn = !isLivePreviewOn;
+    
+    if (isLivePreviewOn) {
+        btn.classList.add('primary');
+        resizer.style.display = 'block';
+        previewPane.style.display = 'flex';
+        if (!canvasPane.style.width) {
+            canvasPane.style.flex = '1';
+        }
+        updateLivePreview();
+    } else {
+        btn.classList.remove('primary');
+        resizer.style.display = 'none';
+        previewPane.style.display = 'none';
+        canvasPane.style.width = '';
+        canvasPane.style.flex = '1';
+        
+        // Reset frame sources and revoke blob URL
+        document.getElementById('livePreviewFrame1').src = 'about:blank';
+        document.getElementById('livePreviewFrame2').src = 'about:blank';
+        if (activeBlobUrl) {
+            URL.revokeObjectURL(activeBlobUrl);
+            activeBlobUrl = null;
+        }
+    }
+}
+
+function triggerLivePreviewUpdate() {
+    if (!isLivePreviewOn) return;
+    
+    var autoUpdateCheckbox = document.getElementById('livePreviewAutoUpdate');
+    var isAutoUpdate = autoUpdateCheckbox ? autoUpdateCheckbox.checked : true;
+    if (!isAutoUpdate) return;
+    
+    if (livePreviewTimeout) {
+        clearTimeout(livePreviewTimeout);
+    }
+    livePreviewTimeout = setTimeout(function() {
+        updateLivePreview();
+    }, 450);
+}
+
+function updateLivePreview(force) {
+    if (!isLivePreviewOn) return;
+    
+    if (!force) {
+        var autoUpdateCheckbox = document.getElementById('livePreviewAutoUpdate');
+        var isAutoUpdate = autoUpdateCheckbox ? autoUpdateCheckbox.checked : true;
+        if (!isAutoUpdate) return;
+    }
+    
+    var nextFrameNum = currentActiveFrame === 1 ? 2 : 1;
+    var activeFrame = document.getElementById('livePreviewFrame' + currentActiveFrame);
+    var nextFrame = document.getElementById('livePreviewFrame' + nextFrameNum);
+    if (!activeFrame || !nextFrame) return;
+    
+    pdfMake.createPdf(buildDoc()).getBlob(function(blob) {
+        var newUrl = URL.createObjectURL(blob);
+        var loaded = false;
+        
+        function onFrameLoad() {
+            if (loaded) return;
+            loaded = true;
+            nextFrame.removeEventListener('load', onFrameLoad);
+            
+            // Swap frames using opacity and z-index transitions
+            nextFrame.style.opacity = '1';
+            nextFrame.style.pointerEvents = 'auto';
+            nextFrame.style.zIndex = '2';
+            
+            activeFrame.style.opacity = '0';
+            activeFrame.style.pointerEvents = 'none';
+            activeFrame.style.zIndex = '1';
+            
+            // Clean up previous blob URL to avoid memory leaks
+            if (activeBlobUrl) {
+                URL.revokeObjectURL(activeBlobUrl);
+            }
+            activeBlobUrl = newUrl;
+            currentActiveFrame = nextFrameNum;
+        }
+        
+        nextFrame.addEventListener('load', onFrameLoad);
+        nextFrame.src = newUrl;
+        
+        // Fallback safety timeout (forces swap if load event is suppressed by the browser's PDF engine)
+        setTimeout(function() {
+            if (!loaded) {
+                onFrameLoad();
+            }
+        }, 150);
+    });
+}
+
+// Live Preview Resizer Drag Logic
+(function() {
+    var resizer = document.getElementById('previewResizer');
+    var canvasPane = document.querySelector('.canvas-pane');
+    var isResizing = false;
+    var startX, startWidth;
+
+    resizer.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        isResizing = true;
+        resizer.classList.add('active');
+        startX = e.clientX;
+        startWidth = canvasPane.offsetWidth;
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    });
+
+    function handleMouseMove(e) {
+        if (!isResizing) return;
+        var deltaX = e.clientX - startX;
+        var newWidth = startWidth + deltaX;
+        // Clamp widths: canvas pane at least 400px, preview pane at least 300px
+        var containerWidth = document.querySelector('.canvas-wrap').offsetWidth;
+        newWidth = Math.max(400, Math.min(containerWidth - 306, newWidth));
+        canvasPane.style.flex = 'none';
+        canvasPane.style.width = newWidth + 'px';
     }
 
     function handleMouseUp() {
