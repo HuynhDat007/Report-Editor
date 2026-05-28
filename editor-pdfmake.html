@@ -259,6 +259,33 @@
         </div>
     </div>
 
+    <!-- Columns Editor Modal -->
+    <div class="modal-bg" id="fieldMappingModal">
+        <div class="modal" style="width: 580px; height: auto; max-height: 90vh; align-self: center;">
+            <div class="mhead">
+                <span style="font-weight:600">Columns Editor</span>
+                <button onclick="closeFieldMappingModal()"
+                    style="background:none;border:none;color:#cdd6f4;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;">
+                <div style="color: #a6adc8; font-size: 12px; line-height: 1.4;">
+                    Configure columns: set header names and data mappings. Use <strong>{Fx}</strong> for custom expressions.<br>
+                    In Fx mode, use <code>$item</code> for current row and <code>$index</code> for row index.
+                </div>
+                <div id="fieldMappingRows" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                    <button onclick="addColumnRow()" style="width: auto; padding: 5px 10px; border: 1px dashed #585b70; background: transparent; color: #a6adc8; border-radius: 6px; cursor: pointer; font-size: 12px;">+ Add Column</button>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="closeFieldMappingModal()" style="width: auto; padding: 6px 12px; border: 1px solid #585b70; background: #313244; color: #cdd6f4; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+                        <button onclick="saveFieldMappingModal()" style="width: auto; padding: 6px 12px; border: 1px solid #89b4fa; background: #89b4fa; color: #1e1e2e; font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 12px;">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleImport(event)">
 
     <script src="editor-pdfmake.js"></script>

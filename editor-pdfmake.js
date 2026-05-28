@@ -329,14 +329,14 @@ function render() {
                 var displayData = el.data || [];
                 if (el.dataVar && Array.isArray(variables[el.dataVar])) {
                     var varData = variables[el.dataVar];
-                    var fields = (el.fieldMappings || '').split(',').map(function(f){return f.trim();});
-                    displayData = varData.map(function(item) {
+                    var fields = parseFieldMappings(el);
+                    displayData = varData.map(function(item, rIdx) {
                         var row = [];
                         var keys = Object.keys(item);
                         for (var i = 0; i < el.headers.length; i++) {
-                            var f = fields[i];
-                            if (f && f !== '') {
-                                row.push(item[f] !== undefined ? item[f] : '');
+                            var resolved = resolveFieldValue(fields[i], item, rIdx);
+                            if (resolved !== undefined) {
+                                row.push(resolved);
                             } else {
                                 row.push((keys[i] !== undefined && item[keys[i]] !== undefined) ? item[keys[i]] : '');
                             }
@@ -380,7 +380,8 @@ function render() {
                         var rowBg = isEvenRow ? evenFill : oddFill;
                         var cellBg = colFills[i] || rowBg || '';
                         var bgStyle = cellBg ? 'background-color:' + cellBg + ';' : '';
-                        tbl += '<td style="border:'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+'">'+c+'</td>';
+                        var cellVal = (c === undefined || c === null) ? '' : String(c).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+                        tbl += '<td style="border:'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+'">'+cellVal+'</td>';
                     });
                     tbl += '</tr>';
                 });
@@ -1211,7 +1212,6 @@ function renderProps() {
         h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
     }
     if (el.type === 'table') {
-        h += '<div class="prop-row"><label>Headers</label><input value="'+el.headers.join(',')+'" onchange="setProp(\'headers\',this.value.split(\',\'))"></div>';
         h += '<div class="prop-row"><label>Show header</label><input type="checkbox" '+(el.showHeader!==false?'checked':'')+' onchange="setProp(\'showHeader\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Bind variable</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- None --</option>';
         Object.keys(variables).forEach(function(k) {
@@ -1220,7 +1220,8 @@ function renderProps() {
             }
         });
         h += '</select></div>';
-        h += '<div class="prop-row"><label>Field mappings</label><input value="'+(el.fieldMappings||'')+'" onchange="setProp(\'fieldMappings\',this.value)" placeholder="no,name,quantity" title="Comma-separated column fields"></div>';
+        var colSummary = getColumnsSummary(el);
+        h += '<div class="prop-row"><label>Columns</label><button onclick="openColumnsEditor('+el.id+')" style="width:auto; flex:1; margin:0; padding:4px 8px; background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; cursor:pointer; font-size:11px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="Click to edit columns &amp; mappings">'+colSummary+'</button></div>';
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Widths</label><input value="'+el.widths+'" onchange="setProp(\'widths\',this.value)" placeholder="*,*,* or 30,*,80"></div>';
@@ -1823,14 +1824,14 @@ function elementToNode(el, imagesDict) {
             var displayData = el.data || [];
             if (el.dataVar && Array.isArray(variables[el.dataVar])) {
                 var varData = variables[el.dataVar];
-                var fields = (el.fieldMappings || '').split(',').map(function(f){return f.trim();});
-                displayData = varData.map(function(item) {
+                var fields = parseFieldMappings(el);
+                displayData = varData.map(function(item, rIdx) {
                     var row = [];
                     var keys = Object.keys(item);
                     for (var i = 0; i < el.headers.length; i++) {
-                        var f = fields[i];
-                        if (f && f !== '') {
-                            row.push(item[f] !== undefined ? item[f] : '');
+                        var resolved = resolveFieldValue(fields[i], item, rIdx);
+                        if (resolved !== undefined) {
+                            row.push(resolved);
                         } else {
                             row.push((keys[i] !== undefined && item[keys[i]] !== undefined) ? item[keys[i]] : '');
                         }
@@ -1857,8 +1858,9 @@ function elementToNode(el, imagesDict) {
                     var isEvenRow = (rIdx % 2 === 1);
                     var rowBg = isEvenRow ? evenFill : oddFill;
                     var cellBg = colFills[i] || rowBg || '';
+                    var cellText = parseHtmlToPdfText(c);
                     return {
-                        text: c,
+                        text: cellText,
                         alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
                         bold: el.bold || false,
                         italics: el.italic || false,
@@ -2359,6 +2361,289 @@ function saveFxEditorModal() {
     render();
     renderProps();
     closeFxEditorModal();
+}
+
+// --- Columns Editor (Headers + Field Mappings combined) ---
+var fieldMappingElId = null;
+
+function parseFieldMappings(el) {
+    var raw = el.fieldMappings || '';
+    if (!raw) return el.headers.map(function() { return ''; });
+    // Use || separator if present (Fx mode), otherwise comma
+    var sep = raw.indexOf('||') !== -1 ? '||' : ',';
+    var parts = raw.split(sep).map(function(s) { return s.trim(); });
+    while (parts.length < el.headers.length) parts.push('');
+    return parts;
+}
+
+function getColumnsSummary(el) {
+    var mappings = parseFieldMappings(el);
+    var parts = [];
+    for (var i = 0; i < el.headers.length; i++) {
+        var h = el.headers[i] || ('Col ' + (i+1));
+        var m = mappings[i] || '';
+        if (m.indexOf('fx:') === 0) {
+            parts.push(h + '→{Fx}');
+        } else if (m) {
+            parts.push(h + '→' + m);
+        } else {
+            parts.push(h);
+        }
+    }
+    return parts.join(', ') || 'Click to configure...';
+}
+
+function getVarDataKeys(el) {
+    if (!el.dataVar || !variables[el.dataVar] || !Array.isArray(variables[el.dataVar])) return [];
+    var arr = variables[el.dataVar];
+    if (arr.length === 0) return [];
+    var firstItem = arr[0];
+    if (typeof firstItem !== 'object' || firstItem === null) return [];
+    return Object.keys(firstItem);
+}
+
+function buildColumnRow(idx, headerName, mapping, keys) {
+    var isFx = mapping.indexOf('fx:') === 0;
+    var fxVal = isFx ? mapping.substring(3) : '';
+    var fieldVal = isFx ? '' : mapping;
+
+    var row = document.createElement('div');
+    row.className = 'col-editor-row';
+    row.style.cssText = 'background:#1e1e2e; border:1px solid #313244; border-radius:6px; padding:8px 10px;';
+    row.setAttribute('data-col-idx', idx);
+
+    // Top bar: index label + delete button
+    var topBar = document.createElement('div');
+    topBar.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
+    var idxLabel = document.createElement('span');
+    idxLabel.style.cssText = 'font-size:10px; color:#6c7086; font-weight:600;';
+    idxLabel.textContent = 'COLUMN ' + (idx + 1);
+    topBar.appendChild(idxLabel);
+    var delBtn = document.createElement('button');
+    delBtn.style.cssText = 'width:auto; margin:0; padding:2px 6px; background:transparent; color:#f38ba8; border:1px solid #45475a; border-radius:4px; cursor:pointer; font-size:10px;';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Remove column';
+    delBtn.onclick = function() { removeColumnRow(row); };
+    topBar.appendChild(delBtn);
+    row.appendChild(topBar);
+
+    // Main content: header input (left) + field/fx (right)
+    var mainRow = document.createElement('div');
+    mainRow.style.cssText = 'display:flex; align-items:flex-start; gap:8px;';
+
+    // Left: header name
+    var leftCol = document.createElement('div');
+    leftCol.style.cssText = 'flex:1; display:flex; flex-direction:column; gap:2px;';
+    var headerLbl = document.createElement('span');
+    headerLbl.style.cssText = 'font-size:10px; color:#6c7086;';
+    headerLbl.textContent = 'Header';
+    leftCol.appendChild(headerLbl);
+    var headerInput = document.createElement('input');
+    headerInput.className = 'col-header-input';
+    headerInput.style.cssText = 'width:100%; padding:4px 6px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:12px; box-sizing:border-box;';
+    headerInput.value = headerName;
+    headerInput.placeholder = 'Header name';
+    leftCol.appendChild(headerInput);
+    mainRow.appendChild(leftCol);
+
+    // Right: field select / fx + toggle
+    var rightCol = document.createElement('div');
+    rightCol.style.cssText = 'flex:1; display:flex; flex-direction:column; gap:2px;';
+    var mappingLbl = document.createElement('span');
+    mappingLbl.style.cssText = 'font-size:10px; color:#6c7086;';
+    mappingLbl.textContent = 'Data mapping';
+    rightCol.appendChild(mappingLbl);
+
+    var controlRow = document.createElement('div');
+    controlRow.style.cssText = 'display:flex; align-items:center; gap:4px;';
+
+    var sel = document.createElement('select');
+    sel.className = 'fm-field-select';
+    sel.style.cssText = 'flex:1; padding:4px 6px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:12px;';
+    sel.innerHTML = '<option value="">(auto)</option>';
+    keys.forEach(function(k) {
+        sel.innerHTML += '<option value="' + k + '" ' + (fieldVal === k ? 'selected' : '') + '>' + k + '</option>';
+    });
+    if (isFx) sel.style.display = 'none';
+    controlRow.appendChild(sel);
+
+    var fxInput = document.createElement('textarea');
+    fxInput.className = 'fm-fx-input';
+    fxInput.style.cssText = 'flex:1; padding:4px 6px; background:#11111b; color:#a6e3a1; border:1px solid #45475a; border-radius:4px; font-size:11px; font-family:monospace; height:40px; resize:vertical; display:' + (isFx ? 'block' : 'none') + ';';
+    fxInput.placeholder = '$item.field';
+    fxInput.value = fxVal;
+    controlRow.appendChild(fxInput);
+
+    var fxBtn = document.createElement('button');
+    fxBtn.className = 'fm-fx-btn';
+    fxBtn.style.cssText = 'width:auto; margin:0; padding:3px 6px; border-radius:4px; font-weight:bold; cursor:pointer; font-size:10px; flex-shrink:0; border:1px solid ' + (isFx ? '#89b4fa' : '#45475a') + '; background:' + (isFx ? '#89b4fa' : '#313244') + '; color:' + (isFx ? '#1e1e2e' : '#cdd6f4') + ';';
+    fxBtn.textContent = '{Fx}';
+    fxBtn.title = 'Toggle Fx expression';
+    fxBtn.onclick = function() {
+        var isActive = fxInput.style.display !== 'none';
+        if (isActive) {
+            fxInput.style.display = 'none';
+            sel.style.display = '';
+            fxBtn.style.background = '#313244';
+            fxBtn.style.color = '#cdd6f4';
+            fxBtn.style.borderColor = '#45475a';
+        } else {
+            fxInput.style.display = 'block';
+            sel.style.display = 'none';
+            fxBtn.style.background = '#89b4fa';
+            fxBtn.style.color = '#1e1e2e';
+            fxBtn.style.borderColor = '#89b4fa';
+        }
+    };
+    controlRow.appendChild(fxBtn);
+
+    rightCol.appendChild(controlRow);
+    mainRow.appendChild(rightCol);
+    row.appendChild(mainRow);
+    return row;
+}
+
+function openColumnsEditor(elId) {
+    var el = elements.find(function(e) { return e.id === elId; });
+    if (!el || el.type !== 'table') return;
+    fieldMappingElId = elId;
+
+    var mappings = parseFieldMappings(el);
+    var keys = getVarDataKeys(el);
+    var container = document.getElementById('fieldMappingRows');
+    container.innerHTML = '';
+    // Store keys on container for addColumnRow
+    container._varKeys = keys;
+
+    el.headers.forEach(function(header, idx) {
+        var m = mappings[idx] || '';
+        container.appendChild(buildColumnRow(idx, header, m, keys));
+    });
+
+    document.getElementById('fieldMappingModal').classList.add('show');
+}
+
+// Alias for backward compat
+var openFieldMappingEditor = openColumnsEditor;
+
+function addColumnRow() {
+    var container = document.getElementById('fieldMappingRows');
+    var keys = container._varKeys || [];
+    var count = container.querySelectorAll('.col-editor-row').length;
+    container.appendChild(buildColumnRow(count, 'Column ' + (count + 1), '', keys));
+    // Re-index labels
+    reindexColumnRows();
+}
+
+function removeColumnRow(rowEl) {
+    var container = document.getElementById('fieldMappingRows');
+    if (container.querySelectorAll('.col-editor-row').length <= 1) return; // keep at least 1
+    rowEl.remove();
+    reindexColumnRows();
+}
+
+function reindexColumnRows() {
+    var rows = document.querySelectorAll('#fieldMappingRows .col-editor-row');
+    rows.forEach(function(row, i) {
+        row.setAttribute('data-col-idx', i);
+        var lbl = row.querySelector('span');
+        if (lbl) lbl.textContent = 'COLUMN ' + (i + 1);
+    });
+}
+
+function closeFieldMappingModal() {
+    document.getElementById('fieldMappingModal').classList.remove('show');
+    fieldMappingElId = null;
+}
+
+function saveFieldMappingModal() {
+    if (fieldMappingElId === null) return;
+    var el = elements.find(function(e) { return e.id === fieldMappingElId; });
+    if (!el) return;
+
+    var rows = document.querySelectorAll('#fieldMappingRows .col-editor-row');
+    var headers = [];
+    var mappings = [];
+    rows.forEach(function(row) {
+        var headerInput = row.querySelector('.col-header-input');
+        var sel = row.querySelector('.fm-field-select');
+        var fxInput = row.querySelector('.fm-fx-input');
+        var isFxMode = fxInput.style.display !== 'none';
+
+        headers.push(headerInput.value || ('Column ' + (headers.length + 1)));
+
+        if (isFxMode && fxInput.value.trim()) {
+            mappings.push('fx:' + fxInput.value.trim());
+        } else if (!isFxMode && sel.value) {
+            mappings.push(sel.value);
+        } else {
+            mappings.push('');
+        }
+    });
+
+    el.headers = headers;
+    el.cols = headers.length;
+    // Use || separator if any fx: mapping to avoid comma conflicts in expressions
+    var hasFx = mappings.some(function(m) { return m.indexOf('fx:') === 0; });
+    el.fieldMappings = mappings.join(hasFx ? '||' : ',');
+    render();
+    renderProps();
+    closeFieldMappingModal();
+}
+
+function resolveFieldValue(mapping, item, index) {
+    if (!mapping || mapping === '') return undefined; // auto
+    if (mapping.indexOf('fx:') === 0) {
+        var expr = mapping.substring(3);
+        try {
+            var fn = new Function('$item', '$index', '$data', /\breturn\b/.test(expr) ? expr : 'return (' + expr + ')');
+            var res = fn(item, index, variables);
+            return res !== undefined && res !== null ? res : '';
+        } catch (e) {
+            return 'Fx Error: ' + e.message;
+        }
+    }
+    return item[mapping] !== undefined ? item[mapping] : '';
+}
+
+// Convert HTML tags (b, i, u) in text to pdfmake rich text array
+function parseHtmlToPdfText(str) {
+    str = String(str);
+    if (str.indexOf('<') === -1) return str; // no tags, return plain string
+    var result = [];
+    var regex = /<(\/?)([biu])>/gi;
+    var lastIdx = 0;
+    var bold = false, italic = false, underline = false;
+    var match;
+    while ((match = regex.exec(str)) !== null) {
+        if (match.index > lastIdx) {
+            var seg = str.substring(lastIdx, match.index);
+            if (seg) {
+                var obj = { text: seg };
+                if (bold) obj.bold = true;
+                if (italic) obj.italics = true;
+                if (underline) obj.decoration = 'underline';
+                result.push(obj);
+            }
+        }
+        var isClose = match[1] === '/';
+        var tag = match[2].toLowerCase();
+        if (tag === 'b') bold = !isClose;
+        else if (tag === 'i') italic = !isClose;
+        else if (tag === 'u') underline = !isClose;
+        lastIdx = regex.lastIndex;
+    }
+    if (lastIdx < str.length) {
+        var remaining = str.substring(lastIdx);
+        if (remaining) {
+            var obj = { text: remaining };
+            if (bold) obj.bold = true;
+            if (italic) obj.italics = true;
+            if (underline) obj.decoration = 'underline';
+            result.push(obj);
+        }
+    }
+    return result.length === 1 && !result[0].bold && !result[0].italics && !result[0].decoration ? result[0].text : result;
 }
 
 function toggleUseVarFx(id, checked) {

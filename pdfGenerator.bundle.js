@@ -76,6 +76,30 @@ function isElementVisible(el, data) {
     }
 }
 
+function parseFieldMappings(el) {
+    var raw = el.fieldMappings || '';
+    if (!raw) return el.headers.map(function() { return ''; });
+    var sep = raw.indexOf('||') !== -1 ? '||' : ',';
+    var parts = raw.split(sep).map(function(s) { return s.trim(); });
+    while (parts.length < el.headers.length) parts.push('');
+    return parts;
+}
+
+function resolveFieldValue(mapping, item, index, variables) {
+    if (!mapping || mapping === '') return undefined;
+    if (mapping.indexOf('fx:') === 0) {
+        var expr = mapping.substring(3);
+        try {
+            var fn = new Function('$item', '$index', '$data', /\breturn\b/.test(expr) ? expr : 'return (' + expr + ')');
+            var res = fn(item, index, variables);
+            return res !== undefined && res !== null ? res : '';
+        } catch (e) {
+            return 'Fx Error: ' + e.message;
+        }
+    }
+    return item[mapping] !== undefined ? item[mapping] : '';
+}
+
 function getParsedWidth(widthVal, pageConfig) {
     if (widthVal === undefined || widthVal === null) return 100;
     var wStr = widthVal.toString().trim();
@@ -241,14 +265,14 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             var displayData = el.data || [];
             if (el.dataVar && Array.isArray(variables[el.dataVar])) {
                 var varData = variables[el.dataVar];
-                var fields = (el.fieldMappings || '').split(',').map(function(f){return f.trim();});
-                displayData = varData.map(function(item) {
+                var fields = parseFieldMappings(el);
+                displayData = varData.map(function(item, rIdx) {
                     var row = [];
                     var keys = Object.keys(item);
                     for (var i = 0; i < el.headers.length; i++) {
-                        var f = fields[i];
-                        if (f && f !== '') {
-                            row.push(item[f] !== undefined ? item[f] : '');
+                        var resolved = resolveFieldValue(fields[i], item, rIdx, variables);
+                        if (resolved !== undefined) {
+                            row.push(resolved);
                         } else {
                             row.push((keys[i] !== undefined && item[keys[i]] !== undefined) ? item[keys[i]] : '');
                         }
