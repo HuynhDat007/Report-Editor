@@ -145,7 +145,7 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width };
+            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
         case 'var':
             var displayVal = '';
             if (el.isFx) {
@@ -198,14 +198,18 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             return { svg: svgStr, width: rSize.w, height: rSize.h };
         case 'table':
             var tableW = getElementWidth(el, pageConfig);
-            var widths = el.widths.split(',').map(function(w) { 
-                w = w.trim(); 
+            var parsedWidths = (el.widths || '').split(',').map(function(w) { return w.trim(); });
+            var widths = [];
+            for (var i = 0; i < el.headers.length; i++) {
+                var w = parsedWidths[i] || '*';
+                if (w === '') w = '*';
                 if (w.indexOf('%') !== -1) {
                     var pct = parseFloat(w) || 0;
-                    return Math.round((pct / 100) * tableW);
+                    widths.push(Math.round((pct / 100) * tableW));
+                } else {
+                    widths.push(isNaN(w) ? w : +w);
                 }
-                return isNaN(w) ? w : +w; 
-            });
+            }
             var pdfHAligns = (el.headerAligns||'center').split(',').map(function(a){return a.trim();});
             var pdfBAligns = (el.bodyAligns||'left').split(',').map(function(a){return a.trim();});
             var colFills = (el.colFills || '').split(',').map(function(f){return f.trim();});
@@ -333,6 +337,13 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
 }
 
 function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pageBreakYs, variables, elements, pageConfig) {
+    function horizontalOverlap(el1, el2) {
+        var w1 = getElementWidth(el1, pageConfig);
+        var w2 = getElementWidth(el2, pageConfig);
+        var x1 = el1.x;
+        var x2 = el2.x;
+        return Math.max(x1, x2) < Math.min(x1 + w1, x2 + w2);
+    }
     var content = [];
     var layoutElements = elementsList.filter(function(e) {
         return e.type !== 'pagebreak' && isElementVisible(e, variables);
@@ -349,9 +360,18 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
             var row = rows[i];
             var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
             if (Math.abs(el.y - avgY) < 10) {
-                row.push(el);
-                placed = true;
-                break;
+                var overlaps = false;
+                for (var j = 0; j < row.length; j++) {
+                    if (horizontalOverlap(el, row[j])) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    row.push(el);
+                    placed = true;
+                    break;
+                }
             }
         }
         if (!placed) {
@@ -369,6 +389,14 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
 
     rows.forEach(function(row) {
         row.sort(function(a, b) { return a.x - b.x; });
+        
+        var paperSize = pageConfig.paperSize || 'LETTER';
+        var paperOrient = pageConfig.paperOrient || 'portrait';
+        var sizes = { LETTER:[612,792], A4:[595,842], A5:[420,595], LEGAL:[612,1008] };
+        var s = sizes[paperSize] || sizes.LETTER;
+        var pageWidth = (paperOrient === 'landscape' ? s[1] : s[0]);
+        var rightMargin = pageConfig.marginRight || 0;
+
         var currentRowTop = Math.min.apply(null, row.map(function(e){ return e.y; }));
         
         var crossedPB = null;
@@ -411,13 +439,21 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     elW = rSize.w;
                 }
+                var maxAllowedW = pageWidth - rightMargin - el.x;
+                if (el.type === 'shape') {
+                    var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                    maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                }
+                var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
+                var colNode = {
+                    width: clampedW,
+                    stack: [ node ]
+                };
                 var widthVal = el.width;
                 if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                    node.width = widthVal.toString().trim();
-                } else {
-                    node.width = elW;
+                    colNode.width = widthVal.toString().trim();
                 }
-                rowNode = { columns: [ node ], margin: [leftMargin, gapY, 0, 0] };
+                rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
             }
         } else {
             var columns = [];
@@ -428,49 +464,56 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 colMarginLeft = firstEl.x - rSize.dx - baseMarginLeft;
             }
 
-            var prevEnd = firstEl.x + getElementWidth(firstEl, pageConfig);
-            if (firstEl.type === 'shape') {
-                var rSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
-                prevEnd = (firstEl.x - rSize.dx) + rSize.w;
-            }
+            var prevEnd = (firstEl.type === 'shape' ? (firstEl.x - rSize.dx) : firstEl.x);
 
             row.forEach(function(el, idx) {
                 var node = elementToNode(el, imagesDict, variables, elements, pageConfig);
                 if (node) {
                     var elW = getElementWidth(el, pageConfig);
-                    
-                    if (idx === 0) {
-                        node.margin = [0, 0, 0, 0];
-                    } else {
-                        var currentStart = el.x;
-                        if (el.type === 'shape') {
-                            var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
-                            currentStart = el.x - rSize.dx;
-                        }
-                        var gap = currentStart - prevEnd;
-                        if (gap < 0) gap = 0;
-                        node.margin = [gap, 0, 0, 0];
-                    }
-                    
-                    var currentWidth = elW;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
-                        currentWidth = rSize.w;
+                        elW = rSize.w;
                     }
-                    prevEnd = (el.type === 'shape' ? (el.x - rSize.dx) : el.x) + currentWidth;
+                    
+                    var maxAllowedW = pageWidth - rightMargin - el.x;
+                    if (el.type === 'shape') {
+                        var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                    }
+                    var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
+
+                    var currentStart = el.x;
+                    if (el.type === 'shape') {
+                        var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        currentStart = el.x - rSize.dx;
+                    }
+                    var gap = currentStart - prevEnd;
+                    if (gap > 0) {
+                        columns.push({ width: gap, text: '' });
+                    }
+
+                    // Vertical offset: align element relative to row top
+                    var elOffsetY = el.y - currentRowTop;
+                    if (elOffsetY > 0) {
+                        node.margin = [0, elOffsetY, 0, 0];
+                    }
+
+                    var colNode = {
+                        width: clampedW,
+                        stack: [ node ]
+                    };
                     
                     var widthVal = el.width;
                     if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                        node.width = widthVal.toString().trim();
-                    } else {
-                        node.width = elW;
+                        colNode.width = widthVal.toString().trim();
                     }
                     
-                    columns.push(node);
+                    columns.push(colNode);
+                    prevEnd = currentStart + clampedW;
                 }
             });
             
-            rowNode = { columns: columns, margin: [colMarginLeft, gapY, 0, 0] };
+            rowNode = { columns: columns, columnGap: 0, margin: [colMarginLeft, gapY, 0, 0] };
         }
 
         if (rowNode) {
@@ -512,11 +555,17 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
     
     var content = buildLayout(topLevelElements, pageConfig.marginLeft, pageConfig.marginTop, imagesDict, pageBreakYs, combinedVariables, elements, pageConfig);
     
+    var fontName = 'Roboto';
+    if (pageConfig.defaultFont === 'Times New Roman' && typeof pdfMake !== 'undefined' && pdfMake.fonts) {
+        if (pdfMake.fonts['Times New Roman']) fontName = 'Times New Roman';
+        else if (pdfMake.fonts['TimesNewRoman']) fontName = 'TimesNewRoman';
+    }
+
     return {
         pageSize: pageConfig.paperSize || 'LETTER',
         pageOrientation: pageConfig.paperOrient || 'portrait',
         pageMargins: [pageConfig.marginLeft, pageConfig.marginTop, pageConfig.marginRight, pageConfig.marginBottom],
-        defaultStyle: { font: pageConfig.defaultFont === 'Times New Roman' ? 'TimesNewRoman' : 'Roboto' },
+        defaultStyle: { font: fontName },
         background: function(currentPage, pageSize) {
             return {
                 canvas: [

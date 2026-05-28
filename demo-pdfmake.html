@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Demo pdfmake - Prescription</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f0f0f0; }
+        .toolbar { background: #336699; padding: 10px 20px; display: flex; gap: 10px; }
+        .toolbar button {
+            padding: 8px 16px; border: none; border-radius: 4px;
+            cursor: pointer; font-size: 14px; color: #fff; background: #4a88c5;
+        }
+        .toolbar button:hover { background: #5a9ad5; }
+        iframe { width: 100%; height: calc(100vh - 52px); border: none; }
+    </style>
+</head>
+<body>
+
+<div class="toolbar">
+    <button onclick="viewPDF()">👁 View PDF</button>
+    <button onclick="downloadPDF()">💾 Download</button>
+    <button onclick="printPDF()">🖨 Print</button>
+</div>
+<iframe id="pdfViewer"></iframe>
+
+<script>
+// ============================================================
+// DATA - Change data here for real use
+// ============================================================
+var vars = {
+    clinic_name: "Clinic Name Clinic Name Clinic Name",
+    clinic_phone: "Clinic Phone Number",
+    ticket_number: "12381/1251",
+    medical_id: "1238/125",
+    interconnect_code: "806873517AFB-c",
+    patient_name: "Patient Name",
+    patient_age: "79",
+    patient_weight: "60kg",
+    patient_gender: "Female",
+    patient_insurance: "insurance",
+    patient_address: "Patient Address",
+    diagnosis: "Medical Diagnosis",
+    doctor_advice: "Doctor's instructions 1111111111111111 111111111111111111 111111111111 11111111111111 1111111111",
+    revisit_date: "20/10/2023",
+    visit_date: "",
+    doctor_name: "Doctor Name",
+    note1: "- Please bring this prescription upon revisit",
+    guardian_phone: "- Contact phone number: ",
+    guardian_name: "- Name of father, mother, or guardian accompanying the child: "
+};
+
+var medications = [
+    { no: 1, name: "Monday1 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111", unit: "Tablet", quantity: 4, usage: "Usage 1" },
+    { no: 2, name: "Monday 2", unit: "Tablet", quantity: 2, usage: "Usage 21111111111111111111111111111" },
+    { no: 3, name: "Monday 3", unit: "Tablet", quantity: 1.5, usage: "Take 1 time 2 times 3 times 4 times..." },
+    { no: 4, name: "Monday 4", unit: "Tablet", quantity: 1.5, usage: "" }
+];
+
+// ============================================================
+// TEMPLATE BUILDER
+// ============================================================
+function buildTemplate() {
+    // Build medications rows
+    var medRows = [];
+    medications.forEach(function(t, i) {
+        var idx = i + 1;
+        medRows.push({
+            columns: [
+                { width: '83%', text: idx + ' ) ' + t.name, fontSize: 13 },
+                { width: '2%', text: '' },
+                { width: '15%', text: 'Qty: ' + t.quantity.toString().replace('.', ',') + ' ' + t.unit, fontSize: 13 }
+            ],
+            columnGap: 0,
+            margin: [0, 2, 0, 0]
+        });
+        if (t.usage) {
+            medRows.push({
+                text: 'Usage: ' + t.usage,
+                bold: true, fontSize: 13,
+                margin: [0, 0, 0, 4]
+            });
+        }
+    });
+
+    // Gender checkboxes
+    var maleCheck = vars.patient_gender === 'Male' ? 'x' : ' ';
+    var femaleCheck = vars.patient_gender === 'Female' ? 'x' : ' ';
+
+    return {
+        pageSize: 'LETTER',
+        pageOrientation: 'portrait',
+        pageMargins: [20, 15, 15, 15],
+        defaultStyle: { fontSize: 13 },
+
+        content: [
+            // --- Interconnect code (box) ---
+            {
+                table: {
+                    widths: [110],
+                    body: [[ { text: vars.interconnect_code, fontSize: 13, margin: [4, 1, 4, 1] } ]]
+                },
+                layout: { hLineWidth: function() { return 0.5; }, vLineWidth: function() { return 0.5; } }
+            },
+
+            // --- Header: Clinic Name + Ticket / Medical ID ---
+            {
+                columns: [
+                    {
+                        width: '70%',
+                        stack: [
+                            { text: 'Clinic name: ' + vars.clinic_name.toUpperCase(), fontSize: 13 },
+                            { text: 'Phone number: ' + vars.clinic_phone, fontSize: 13 }
+                        ]
+                    },
+                    {
+                        width: '30%',
+                        stack: [
+                            { text: 'Ticket number: ' + vars.ticket_number, fontSize: 13 },
+                            { text: 'Medical ID: ' + vars.medical_id, fontSize: 13, margin: [0, 6, 0, 0] }
+                        ]
+                    }
+                ],
+                margin: [0, 6, 0, 0]
+            },
+
+            // --- Title ---
+            { text: 'PRESCRIPTION', fontSize: 18, bold: true, alignment: 'center', margin: [0, 15, 0, 10] },
+
+            // --- Patient Information ---
+            {
+                columns: [
+                    { width: 'auto', text: 'Full name: ', fontSize: 13 },
+                    { width: 'auto', text: vars.patient_name.toUpperCase(), fontSize: 13, margin: [0, 0, 15, 0] },
+                    { width: 'auto', text: 'Age: ', fontSize: 13 },
+                    { width: 'auto', text: vars.patient_age, fontSize: 13, margin: [0, 0, 15, 0] },
+                    { width: 'auto', text: 'Weight: ', fontSize: 13 },
+                    { width: 'auto', text: vars.patient_weight, fontSize: 13, margin: [0, 0, 15, 0] },
+                    { width: 'auto', text: 'Male [' + maleCheck + ']  Female [' + femaleCheck + ']', fontSize: 13 }
+                ]
+            },
+            { text: 'Health insurance card number (if any): ' + vars.patient_insurance, fontSize: 13, margin: [0, 6, 0, 0] },
+            { text: 'Address: ' + vars.patient_address, fontSize: 13, margin: [0, 6, 0, 0] },
+            { text: 'Diagnosis: ' + vars.diagnosis, fontSize: 13, margin: [0, 10, 0, 10] },
+
+            // --- Medications ---
+            { text: 'Treatment Medications:', bold: true, fontSize: 13, margin: [0, 5, 0, 5] },
+            ...medRows,
+
+            // --- Footer: Advice + Doctor signature ---
+            { text: '', margin: [0, 20, 0, 0] },
+            {
+                columns: [
+                    {
+                        width: '50%',
+                        stack: [
+                            { text: 'Doctor\'s instructions:', italics: true, fontSize: 13 },
+                            { text: vars.doctor_advice, italics: true, fontSize: 13, margin: [0, 4, 0, 0] }
+                        ]
+                    },
+                    {
+                        width: '50%',
+                        stack: [
+                            { text: vars.visit_date || '', alignment: 'center', fontSize: 13 },
+                            { text: 'Examining Doctor/Physician', alignment: 'center', fontSize: 13, margin: [0, 4, 0, 0] },
+                            { text: '(Sign, write full name)', italics: true, alignment: 'center', fontSize: 13, margin: [0, 4, 0, 0] },
+                            { text: '', margin: [0, 60, 0, 0] },
+                            { text: vars.doctor_name, alignment: 'center', fontSize: 13 }
+                        ]
+                    }
+                ]
+            },
+
+            // --- Revisit ---
+            { text: 'Revisit', italics: true, fontSize: 13, margin: [0, 20, 0, 4] },
+            { text: vars.revisit_date, italics: true, fontSize: 13 },
+
+            // --- Final notes ---
+            { text: vars.note1, italics: true, fontSize: 10, margin: [0, 30, 0, 0] },
+            { text: vars.guardian_phone, italics: true, fontSize: 10, margin: [0, 6, 0, 0] },
+            { text: vars.guardian_name, italics: true, fontSize: 10, margin: [0, 6, 0, 0] }
+        ]
+    };
+}
+
+// ============================================================
+// ACTIONS
+// ============================================================
+function viewPDF() {
+    pdfMake.createPdf(buildTemplate()).getDataUrl(function(url) {
+        document.getElementById('pdfViewer').src = url;
+    });
+}
+
+function downloadPDF() {
+    pdfMake.createPdf(buildTemplate()).download('prescription.pdf');
+}
+
+function printPDF() {
+    pdfMake.createPdf(buildTemplate()).print();
+}
+
+// Auto load
+window.onload = viewPDF;
+</script>
+
+</body>
+</html>

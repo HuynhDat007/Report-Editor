@@ -116,10 +116,10 @@ function addElement(type) {
     var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, parentId: null, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     switch(type) {
         case 'text':
-            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200 });
+            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200, wrap:false });
             break;
         case 'heading':
-            Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572 });
+            Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572, wrap:false });
             el.x = 20;
             break;
         case 'line':
@@ -226,6 +226,7 @@ function render() {
                 div.style.color = textColor || '#000000';
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
                 div.style.width = getParsedWidth(wVal) + 'px';
+                div.style.whiteSpace = el.wrap === false ? 'nowrap' : 'pre-wrap';
                 div.textContent = el.text;
                 break;
             case 'var':
@@ -280,7 +281,7 @@ function render() {
                 
                 if (el.shapeType === 'rect') {
                     var r = el.radius || 0;
-                    svg += '<rect x="'+(sw/2)+'" y="'+(sw/2)+'" width="'+(swW-sw)+'" height="'+(swH-sw)+'" rx="'+r+'" ry="'+r+'" stroke="'+sc+'" stroke-width="sw" fill="'+fc+'" />';
+                    svg += '<rect x="'+(sw/2)+'" y="'+(sw/2)+'" width="'+(swW-sw)+'" height="'+(swH-sw)+'" rx="'+r+'" ry="'+r+'" stroke="'+sc+'" stroke-width="'+sw+'" fill="'+fc+'" />';
                 } else if (el.shapeType === 'line') {
                     svg += '<line x1="0" y1="'+(swH/2)+'" x2="'+swW+'" y2="'+(swH/2)+'" stroke="'+sc+'" stroke-width="'+sw+'" />';
                 } else if (el.shapeType === 'ellipse') {
@@ -1097,6 +1098,8 @@ function renderProps() {
             var colorFxPreview = el.colorFx.length > 25 ? el.colorFx.substring(0, 25) + '...' : el.colorFx;
             h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Color Fx: ' + colorFxPreview + '</div>';
         }
+        var isWrap = el.wrap !== false;
+        h += '<div class="prop-row"><label>Auto wrap</label><input type="checkbox" '+(isWrap?'checked':'')+' onchange="setProp(\'wrap\',this.checked)"></div>';
     }
     if (el.type === 'var') {
         var isFx = !!el.isFx;
@@ -1746,7 +1749,7 @@ function elementToNode(el, imagesDict) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width };
+            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
         case 'var':
             var displayVal = '';
             if (el.isFx) {
@@ -1799,14 +1802,18 @@ function elementToNode(el, imagesDict) {
             return { svg: svgStr, width: rSize.w, height: rSize.h };
         case 'table':
             var tableW = getElementWidth(el);
-            var widths = el.widths.split(',').map(function(w) { 
-                w = w.trim(); 
+            var parsedWidths = (el.widths || '').split(',').map(function(w) { return w.trim(); });
+            var widths = [];
+            for (var i = 0; i < el.headers.length; i++) {
+                var w = parsedWidths[i] || '*';
+                if (w === '') w = '*';
                 if (w.indexOf('%') !== -1) {
                     var pct = parseFloat(w) || 0;
-                    return Math.round((pct / 100) * tableW);
+                    widths.push(Math.round((pct / 100) * tableW));
+                } else {
+                    widths.push(isNaN(w) ? w : +w);
                 }
-                return isNaN(w) ? w : +w; 
-            });
+            }
             var pdfHAligns = (el.headerAligns||'center').split(',').map(function(a){return a.trim();});
             var pdfBAligns = (el.bodyAligns||'left').split(',').map(function(a){return a.trim();});
             var colFills = (el.colFills || '').split(',').map(function(f){return f.trim();});
@@ -1943,6 +1950,13 @@ function elementToNode(el, imagesDict) {
 // BUILD PDFMAKE DOCUMENT
 // ============================================================
 function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pageBreakYs) {
+    function horizontalOverlap(el1, el2) {
+        var w1 = getElementWidth(el1);
+        var w2 = getElementWidth(el2);
+        var x1 = el1.x;
+        var x2 = el2.x;
+        return Math.max(x1, x2) < Math.min(x1 + w1, x2 + w2);
+    }
     var content = [];
     
     // Filter out pagebreak and hidden elements from the layout calculations
@@ -1963,9 +1977,18 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
             var row = rows[i];
             var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
             if (Math.abs(el.y - avgY) < 10) { // Y threshold of 10 pixels
-                row.push(el);
-                placed = true;
-                break;
+                var overlaps = false;
+                for (var j = 0; j < row.length; j++) {
+                    if (horizontalOverlap(el, row[j])) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    row.push(el);
+                    placed = true;
+                    break;
+                }
             }
         }
         if (!placed) {
@@ -1987,6 +2010,13 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         // Sort elements in this row from left to right (X coordinate)
         row.sort(function(a, b) { return a.x - b.x; });
         
+        var paperSize = pageConfig.paperSize || 'LETTER';
+        var paperOrient = pageConfig.paperOrient || 'portrait';
+        var sizes = { LETTER:[612,792], A4:[595,842], A5:[420,595], LEGAL:[612,1008] };
+        var s = sizes[paperSize] || sizes.LETTER;
+        var pageWidth = (paperOrient === 'landscape' ? s[1] : s[0]);
+        var rightMargin = pageConfig.marginRight || 0;
+
         var currentRowTop = Math.min.apply(null, row.map(function(e){ return e.y; }));
         
         // Check if we crossed any page break
@@ -2032,16 +2062,25 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     elW = rSize.w;
                 }
+                var maxAllowedW = pageWidth - rightMargin - el.x;
+                if (el.type === 'shape') {
+                    var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                    maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                }
+                var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
+                var colNode = {
+                    width: clampedW,
+                    stack: [ node ]
+                };
                 var widthVal = el.width;
                 if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                    node.width = widthVal.toString().trim();
-                } else {
-                    node.width = elW;
+                    colNode.width = widthVal.toString().trim();
                 }
-                rowNode = { columns: [ node ], margin: [leftMargin, gapY, 0, 0] };
+                rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
             }
         } else {
             // Multiple elements on the same row: wrap in columns
+            // Use spacer columns for gaps instead of margin (pdfMake consumes margin from width)
             var columns = [];
             var firstEl = row[0];
             var colMarginLeft = firstEl.x - baseMarginLeft;
@@ -2050,49 +2089,57 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 colMarginLeft = firstEl.x - rSize.dx - baseMarginLeft;
             }
 
-            var prevEnd = firstEl.x + getElementWidth(firstEl);
-            if (firstEl.type === 'shape') {
-                var rSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
-                prevEnd = (firstEl.x - rSize.dx) + rSize.w;
-            }
+            var prevEnd = (firstEl.type === 'shape' ? (firstEl.x - rSize.dx) : firstEl.x);
 
             row.forEach(function(el, idx) {
                 var node = elementToNode(el, imagesDict);
                 if (node) {
                     var elW = getElementWidth(el);
-                    
-                    if (idx === 0) {
-                        node.margin = [0, 0, 0, 0];
-                    } else {
-                        var currentStart = el.x;
-                        if (el.type === 'shape') {
-                            var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
-                            currentStart = el.x - rSize.dx;
-                        }
-                        var gap = currentStart - prevEnd;
-                        if (gap < 0) gap = 0;
-                        node.margin = [gap, 0, 0, 0];
-                    }
-                    
-                    var currentWidth = elW;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
-                        currentWidth = rSize.w;
+                        elW = rSize.w;
                     }
-                    prevEnd = (el.type === 'shape' ? (el.x - rSize.dx) : el.x) + currentWidth;
+                    
+                    var maxAllowedW = pageWidth - rightMargin - el.x;
+                    if (el.type === 'shape') {
+                        var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                    }
+                    var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
+
+                    // Insert spacer column for gap between elements
+                    var currentStart = el.x;
+                    if (el.type === 'shape') {
+                        var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        currentStart = el.x - rSize.dx;
+                    }
+                    var gap = currentStart - prevEnd;
+                    if (gap > 0) {
+                        columns.push({ width: gap, text: '' });
+                    }
+
+                    // Vertical offset: align element relative to row top
+                    var elOffsetY = el.y - currentRowTop;
+                    if (elOffsetY > 0) {
+                        node.margin = [0, elOffsetY, 0, 0];
+                    }
+
+                    var colNode = {
+                        width: clampedW,
+                        stack: [ node ]
+                    };
                     
                     var widthVal = el.width;
                     if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                        node.width = widthVal.toString().trim();
-                    } else {
-                        node.width = elW;
+                        colNode.width = widthVal.toString().trim();
                     }
                     
-                    columns.push(node);
+                    columns.push(colNode);
+                    prevEnd = currentStart + clampedW;
                 }
             });
             
-            rowNode = { columns: columns, margin: [colMarginLeft, gapY, 0, 0] };
+            rowNode = { columns: columns, columnGap: 0, margin: [colMarginLeft, gapY, 0, 0] };
         }
 
         if (rowNode) {
@@ -2120,11 +2167,16 @@ function buildDoc() {
     
     var content = buildLayout(topLevelElements, pageConfig.marginLeft, pageConfig.marginTop, imagesDict, pageBreakYs);
     
+    var fontName = 'Roboto';
+    if (pageConfig.defaultFont === 'Times New Roman' && typeof pdfMake !== 'undefined' && pdfMake.fonts) {
+        if (pdfMake.fonts['Times New Roman']) fontName = 'Times New Roman';
+        else if (pdfMake.fonts['TimesNewRoman']) fontName = 'TimesNewRoman';
+    }
     return {
         pageSize: pageConfig.paperSize || 'LETTER',
         pageOrientation: pageConfig.paperOrient || 'portrait',
         pageMargins: [pageConfig.marginLeft, pageConfig.marginTop, pageConfig.marginRight, pageConfig.marginBottom],
-        defaultStyle: { font: 'Roboto' },
+        defaultStyle: { font: fontName },
         background: function(currentPage, pageSize) {
             return {
                 canvas: [
@@ -2524,6 +2576,22 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+function toggleIframePointerEvents(enable) {
+    var iframes = document.querySelectorAll('iframe');
+    iframes.forEach(function(iframe) {
+        if (!enable) {
+            iframe.style.pointerEvents = 'none';
+        } else {
+            var activeFrameId = 'livePreviewFrame' + currentActiveFrame;
+            if (iframe.id === activeFrameId) {
+                iframe.style.pointerEvents = 'auto';
+            } else {
+                iframe.style.pointerEvents = 'none';
+            }
+        }
+    });
+}
+
 // Sidebar Resizer Drag Logic
 (function() {
     var resizer = document.getElementById('sidebarResizer');
@@ -2534,6 +2602,7 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         isResizing = true;
         resizer.classList.add('active');
+        toggleIframePointerEvents(false);
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
     });
@@ -2549,6 +2618,7 @@ document.addEventListener('keydown', function(e) {
         if (isResizing) {
             isResizing = false;
             resizer.classList.remove('active');
+            toggleIframePointerEvents(true);
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         }
@@ -2629,7 +2699,8 @@ function updateLivePreview(force) {
             
             // Swap frames using opacity and z-index transitions
             nextFrame.style.opacity = '1';
-            nextFrame.style.pointerEvents = 'auto';
+            var isDragging = !!document.querySelector('.pane-resizer.active, .resizer.active');
+            nextFrame.style.pointerEvents = isDragging ? 'none' : 'auto';
             nextFrame.style.zIndex = '2';
             
             activeFrame.style.opacity = '0';
@@ -2667,6 +2738,7 @@ function updateLivePreview(force) {
         e.preventDefault();
         isResizing = true;
         resizer.classList.add('active');
+        toggleIframePointerEvents(false);
         startX = e.clientX;
         startWidth = canvasPane.offsetWidth;
         document.addEventListener('mousemove', handleMouseMove);
@@ -2688,6 +2760,7 @@ function updateLivePreview(force) {
         if (isResizing) {
             isResizing = false;
             resizer.classList.remove('active');
+            toggleIframePointerEvents(true);
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         }
