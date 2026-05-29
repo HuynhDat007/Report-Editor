@@ -203,7 +203,7 @@ function addElement(type) {
             Object.assign(el, { type:'shape', shapeType:'rect', width:100, height:50, lineWidth:1, color:'#000000', fillColor:'', radius:0, points:'0,50 50,0 100,50', close:true });
             break;
         case 'table':
-            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'', colColors:'', headerBolds:'' });
+            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'', colColors:'', headerBolds:'', paddingTop:4, paddingBottom:4, paddingLeft:6, paddingRight:6, borderStyle:'solid' });
             break;
         case 'var':
             var key = Object.keys(variables)[0] || 'patient_name';
@@ -421,12 +421,13 @@ function render() {
             case 'table':
                 var bdrW = (el.borderWidth||1) + 'px';
                 var bdrC = el.borderColor||'#000';
+                var bdrS = el.borderStyle||'solid';
                 var bdrStyle = '';
                 if (el.showBorder) {
-                    var bL = el.borderLeft !== false ? bdrW+' solid '+bdrC : 'none';
-                    var bT = el.borderTop !== false ? bdrW+' solid '+bdrC : 'none';
-                    var bR = el.borderRight !== false ? bdrW+' solid '+bdrC : 'none';
-                    var bB = el.borderBottom !== false ? bdrW+' solid '+bdrC : 'none';
+                    var bL = el.borderLeft !== false ? bdrW+' '+bdrS+' '+bdrC : 'none';
+                    var bT = el.borderTop !== false ? bdrW+' '+bdrS+' '+bdrC : 'none';
+                    var bR = el.borderRight !== false ? bdrW+' '+bdrS+' '+bdrC : 'none';
+                    var bB = el.borderBottom !== false ? bdrW+' '+bdrS+' '+bdrC : 'none';
                     bdrStyle = 'border-left:'+bL+';border-top:'+bT+';border-right:'+bR+';border-bottom:'+bB;
                 } else {
                     bdrStyle = 'border:none';
@@ -472,6 +473,12 @@ function render() {
                 var oddFill = el.oddRowFill || '';
                 var evenFill = el.evenRowFill || '';
 
+                var pTop = (el.paddingTop !== undefined && el.paddingTop !== '') ? el.paddingTop : 4;
+                var pBottom = (el.paddingBottom !== undefined && el.paddingBottom !== '') ? el.paddingBottom : 4;
+                var pLeft = (el.paddingLeft !== undefined && el.paddingLeft !== '') ? el.paddingLeft : 6;
+                var pRight = (el.paddingRight !== undefined && el.paddingRight !== '') ? el.paddingRight : 6;
+                var paddingStyle = 'padding:' + pTop + 'px ' + pRight + 'px ' + pBottom + 'px ' + pLeft + 'px;';
+
                 var effectiveFont = getElementEffectiveFont(el.font);
                 var tblFont = effectiveFont ? 'font-family:\'' + effectiveFont + '\', sans-serif;' : '';
                 var tbl = '<table style="table-layout:fixed;border-collapse:collapse;width:100%;font-size:'+el.fontSize+'px;'+tblFont+tColor+'">';
@@ -498,7 +505,7 @@ function render() {
                         var hBoldStyle = hBoldVal ? 'font-weight:bold;' : 'font-weight:normal;';
                         var cellColor = colColors[i] || el.color || '#000000';
                         var colorStyle = 'color:' + cellColor + ';';
-                        tbl += '<th style="'+bdrStyle+';padding:2px 4px;'+hBoldStyle+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+colorStyle+'">' +h+'</th>';
+                        tbl += '<th style="'+bdrStyle+';'+paddingStyle+hBoldStyle+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+colorStyle+'">' +h+'</th>';
                     });
                     tbl += '</tr>';
                 }
@@ -512,7 +519,7 @@ function render() {
                         var cellColor = colColors[i] || el.color || '#000000';
                         var colorStyle = 'color:' + cellColor + ';';
                         var cellVal = (c === undefined || c === null) ? '' : String(c).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-                        tbl += '<td style="'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+colorStyle+'">'+cellVal+'</td>';
+                        tbl += '<td style="'+bdrStyle+';'+paddingStyle+'text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+colorStyle+'">'+cellVal+'</td>';
                     });
                     tbl += '</tr>';
                 });
@@ -1582,6 +1589,13 @@ function renderProps() {
         h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'oddRowFill\',\'\')">Clear</button></div>';
         h += '<div class="prop-row"><label>Even row bg</label><input type="color" value="'+((el.evenRowFill && el.evenRowFill.startsWith('#')) ? el.evenRowFill : '#ffffff')+'" onchange="setProp(\'evenRowFill\',this.value)">';
         h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'evenRowFill\',\'\')">Clear</button></div>';
+        h += '<div class="prop-row"><label>Cell Padding</label>';
+        h += '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:4px; flex:1;">';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Top</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingTop!==undefined?el.paddingTop:4)+'" onchange="setProp(\'paddingTop\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Right</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingRight!==undefined?el.paddingRight:6)+'" onchange="setProp(\'paddingRight\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Bottom</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingBottom!==undefined?el.paddingBottom:4)+'" onchange="setProp(\'paddingBottom\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Left</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingLeft!==undefined?el.paddingLeft:6)+'" onchange="setProp(\'paddingLeft\',+this.value)"></div>';
+        h += '</div></div>';
         h += '<div class="prop-row"><label>Border</label><input type="checkbox" '+(el.showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
         if (el.showBorder) {
             h += '<div class="prop-row"><label>Border Sides</label>';
@@ -1593,6 +1607,11 @@ function renderProps() {
             h += '</div></div>';
         }
         h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Border style</label><select onchange="setProp(\'borderStyle\',this.value)">';
+        h += '<option '+(el.borderStyle==='solid'||!el.borderStyle?'selected':'')+' value="solid">Solid (Nét liền)</option>';
+        h += '<option '+(el.borderStyle==='dashed'?'selected':'')+' value="dashed">Dashed (Nét đứt)</option>';
+        h += '<option '+(el.borderStyle==='dotted'?'selected':'')+' value="dotted">Dotted (Chấm tròn)</option>';
+        h += '</select></div>';
         h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
     }
     if (el.type === 'panel') {
@@ -2241,12 +2260,36 @@ function elementToNode(el, imagesDict) {
                     };
                 }));
             });
-            var tblLayout = el.showBorder ? {
-                hLineWidth: function() { return el.borderWidth||1; },
-                vLineWidth: function() { return el.borderWidth||1; },
+            var tblLayout = {
+                hLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
+                vLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
                 hLineColor: function() { return el.borderColor||'#000'; },
-                vLineColor: function() { return el.borderColor||'#000'; }
-            } : 'noBorders';
+                vLineColor: function() { return el.borderColor||'#000'; },
+                hLineStyle: function() {
+                    if (!el.showBorder || !el.borderStyle || el.borderStyle === 'solid') return null;
+                    if (el.borderStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+                    if (el.borderStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+                    return null;
+                },
+                vLineStyle: function() {
+                    if (!el.showBorder || !el.borderStyle || el.borderStyle === 'solid') return null;
+                    if (el.borderStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+                    if (el.borderStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+                    return null;
+                },
+                paddingLeft: function() {
+                    return (el.paddingLeft !== undefined && el.paddingLeft !== '') ? parseFloat(el.paddingLeft) : 6;
+                },
+                paddingRight: function() {
+                    return (el.paddingRight !== undefined && el.paddingRight !== '') ? parseFloat(el.paddingRight) : 6;
+                },
+                paddingTop: function() {
+                    return (el.paddingTop !== undefined && el.paddingTop !== '') ? parseFloat(el.paddingTop) : 4;
+                },
+                paddingBottom: function() {
+                    return (el.paddingBottom !== undefined && el.paddingBottom !== '') ? parseFloat(el.paddingBottom) : 4;
+                }
+            };
             return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {

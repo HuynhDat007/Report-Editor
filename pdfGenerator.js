@@ -394,12 +394,36 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                 }
                 body.push(safeRow);
             });
-            var tblLayout = el.showBorder ? {
-                hLineWidth: function() { return el.borderWidth||1; },
-                vLineWidth: function() { return el.borderWidth||1; },
+            var tblLayout = {
+                hLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
+                vLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
                 hLineColor: function() { return el.borderColor||'#000'; },
-                vLineColor: function() { return el.borderColor||'#000'; }
-            } : 'noBorders';
+                vLineColor: function() { return el.borderColor||'#000'; },
+                hLineStyle: function() {
+                    if (!el.showBorder || !el.borderStyle || el.borderStyle === 'solid') return null;
+                    if (el.borderStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+                    if (el.borderStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+                    return null;
+                },
+                vLineStyle: function() {
+                    if (!el.showBorder || !el.borderStyle || el.borderStyle === 'solid') return null;
+                    if (el.borderStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+                    if (el.borderStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+                    return null;
+                },
+                paddingLeft: function() {
+                    return (el.paddingLeft !== undefined && el.paddingLeft !== '') ? parseFloat(el.paddingLeft) : 6;
+                },
+                paddingRight: function() {
+                    return (el.paddingRight !== undefined && el.paddingRight !== '') ? parseFloat(el.paddingRight) : 6;
+                },
+                paddingTop: function() {
+                    return (el.paddingTop !== undefined && el.paddingTop !== '') ? parseFloat(el.paddingTop) : 4;
+                },
+                paddingBottom: function() {
+                    return (el.paddingBottom !== undefined && el.paddingBottom !== '') ? parseFloat(el.paddingBottom) : 4;
+                }
+            };
             return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {
