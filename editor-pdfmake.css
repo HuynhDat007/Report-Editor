@@ -43,6 +43,28 @@ body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; background: 
     padding: 8px;
     border-bottom: 1px solid #313244;
 }
+.outline-resizer {
+    height: 6px;
+    background: #313244;
+    cursor: row-resize;
+    transition: background 0.2s;
+    z-index: 10;
+    position: relative;
+    flex-shrink: 0;
+}
+.outline-resizer:hover, .outline-resizer.active {
+    background: #89b4fa;
+}
+.outline-resizer::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -8px;
+    bottom: -8px;
+    cursor: row-resize;
+    z-index: 15;
+}
 .outline-section {
     height: 300px;
     overflow-y: auto;
@@ -289,6 +311,76 @@ body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; background: 
     height: 100%;
     border: none;
     background: #fff;
+}
+
+/* Autocomplete suggestions */
+.fx-suggestions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    z-index: 1000;
+    background: #181825;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    max-height: 140px;
+    overflow-y: auto;
+}
+.fx-suggestion-item {
+    padding: 6px 10px;
+    color: #cdd6f4;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: monospace;
+    font-size: 11px;
+    transition: background 0.15s, color 0.15s;
+}
+.fx-suggestion-item:hover, .fx-suggestion-item.active {
+    background: #313244;
+    color: #89b4fa;
+}
+.fx-suggestion-item .var-type {
+    font-size: 9px;
+    color: #6c7086;
+    background: #11111b;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+/* Syntax highlighting in Fx modal */
+.hl-comment { color: #6c7086; font-style: italic; }
+.hl-string { color: #a6e3a1; }
+.hl-var { color: #f9e2af; font-weight: bold; }
+.hl-keyword { color: #cba6f7; font-weight: bold; }
+.hl-number { color: #fab387; }
+
+/* Table element helper outline in editor */
+.el-table {
+    outline: 1px dashed rgba(137, 180, 250, 0.4);
+    outline-offset: 1px;
+}
+.el-table::before {
+    content: "TABLE";
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 8px;
+    font-weight: bold;
+    color: rgba(137, 180, 250, 0.4);
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: 0.5px;
+    z-index: 10;
+}
+.el-table:hover {
+    outline-color: #89b4fa;
+}
+.el-table:hover::before {
+    color: #89b4fa;
 }
 
 

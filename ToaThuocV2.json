@@ -369,12 +369,12 @@
       "italic": false,
       "align": "left",
       "color": "#000000",
-      "width": 50,
+      "width": 45,
       "wrap": false
     },
     {
       "id": 22,
-      "x": 70,
+      "x": 66,
       "y": 172,
       "showFx": "",
       "useShowFx": false,
@@ -858,6 +858,90 @@
     "kb_chan_doan": "A39.1† - Hội chứng Waterhouse-Friderichsen (E35.1*); C16.6 - U ác của bờ cong lớn dạ dày,\nkhông đặc hiệu",
     "kb_ma_lien_thong": "806873517AFB-c",
     "toa_thuoc": [
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
+      {
+        "no": 1,
+        "name": "Paracetamol 500mg",
+        "quantity": 10,
+        "unit": "Bịch",
+        "usage": "Take after meals, 1 morning 1 night"
+      },
       {
         "no": 1,
         "name": "Paracetamol 500mg",

@@ -5,6 +5,40 @@ var elements = [];
 var selectedId = null;
 var selectedIds = [];
 var idCounter = 0;
+var undoStack = [];
+var undoMaxSize = 50;
+var clipboard = [];
+var lastClickTime = 0;
+var lastClickedId = null;
+
+function blurActivePropertyInput() {
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
+        var props = document.getElementById('propsContent');
+        if (props && props.contains(active)) {
+            active.blur();
+        }
+    }
+}
+function saveUndo() {
+    blurActivePropertyInput();
+    undoStack.push(JSON.stringify(elements));
+    if (undoStack.length > undoMaxSize) undoStack.shift();
+}
+function undo() {
+    if (undoStack.length === 0) return;
+    var snapshot = JSON.parse(undoStack.pop());
+    elements = snapshot;
+    var maxId = 0;
+    elements.forEach(function(el) { if (el.id > maxId) maxId = el.id; });
+    idCounter = maxId;
+    selectedId = null;
+    selectedIds = [];
+    updateAlignToolbar();
+    render();
+    renderProps();
+    renderOutline();
+}
 var pageConfig = {
     bgColor: '#ffffff',
     marginLeft: 20,
@@ -109,14 +143,51 @@ function getRotatedSize(w, h, angle) {
     };
 }
 
+function horizontalOverlap(el1, el2) {
+    var w1 = getElementWidth(el1);
+    var w2 = getElementWidth(el2);
+    var x1 = el1.x;
+    var x2 = el2.x;
+    var intersection = Math.min(x1 + w1, x2 + w2) - Math.max(x1, x2);
+    if (intersection <= 0) return false;
+    var minW = Math.min(w1, w2);
+    if (isNaN(minW) || minW <= 0) return false;
+    return (intersection / minW) > 0.5;
+}
+
+function verticalOverlap(el1, el2) {
+    var h1 = getElementHeight(el1, variables);
+    var h2 = getElementHeight(el2, variables);
+    var y1 = el1.y;
+    var y2 = el2.y;
+    var intersection = Math.min(y1 + h1, y2 + h2) - Math.max(y1, y2);
+    return intersection > 0;
+}
+
+function isOverlayingShape(el, elementsList) {
+    if (el.type === 'shape' || el.type === 'rect' || el.type === 'line') return false;
+    var list = elementsList || elements;
+    for (var i = 0; i < list.length; i++) {
+        var other = list[i];
+        if (other.id === el.id) continue;
+        if (other.type === 'shape' || other.type === 'rect' || other.type === 'line') {
+            if (horizontalOverlap(el, other) && verticalOverlap(el, other)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // ============================================================
 // ELEMENT MANAGEMENT
 // ============================================================
 function addElement(type) {
+    saveUndo();
     var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, parentId: null, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     switch(type) {
         case 'text':
-            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200, wrap:false });
+            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200, wrap:false, isFx:false, fxExpr:'' });
             break;
         case 'heading':
             Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572, wrap:false });
@@ -132,23 +203,24 @@ function addElement(type) {
             Object.assign(el, { type:'shape', shapeType:'rect', width:100, height:50, lineWidth:1, color:'#000000', fillColor:'', radius:0, points:'0,50 50,0 100,50', close:true });
             break;
         case 'table':
-            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'' });
-            break;
-        case 'columns':
-            Object.assign(el, { type:'columns', left:'Left Content', right:'Right Content', fontSize:13, width:550, leftAlign:'left', rightAlign:'left' });
+            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'' });
             break;
         case 'var':
             var key = Object.keys(variables)[0] || 'patient_name';
             Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
             break;
         case 'image':
-            Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100 });
+            Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, rotate:0 });
             break;
         case 'panel':
-            Object.assign(el, { type:'panel', width:200, height:150, bgColor:'#f1f5f9', borderColor:'#cbd5e1', borderWidth:1 });
+            Object.assign(el, { type:'panel', width:200, height:150, bgColor:'#ffffff', borderColor:'#ffffff', borderWidth:1 });
             break;
         case 'pagebreak':
             Object.assign(el, { type:'pagebreak', width:'100%', height:20 });
+            el.x = 0;
+            break;
+        case 'emptyline':
+            Object.assign(el, { type:'emptyline', height:20, width:'100%' });
             el.x = 0;
             break;
     }
@@ -158,6 +230,7 @@ function addElement(type) {
 }
 
 function deleteElement(id) {
+    saveUndo();
     elements = elements.filter(function(e) { return e.id !== id && e.parentId !== id; });
     var idx = selectedIds.indexOf(id);
     if (idx !== -1) {
@@ -191,7 +264,8 @@ function render() {
     
     // Apply page configurations to paper background and font
     paper.style.background = pageConfig.bgColor || '#ffffff';
-    paper.style.fontFamily = pageConfig.defaultFont === 'Times New Roman' ? "'Times New Roman', serif" : "'Roboto', sans-serif";
+    var effectiveDefaultFont = getPageEffectiveFont();
+    paper.style.fontFamily = effectiveDefaultFont === 'Times New Roman' ? "'Times New Roman', serif" : (effectiveDefaultFont === 'Roboto' ? "'Roboto', sans-serif" : "'" + effectiveDefaultFont + "', sans-serif");
 
     var sizes = { LETTER:[612,792], A4:[595,842], A5:[420,595], LEGAL:[612,1008] };
     var s = sizes[pageConfig.paperSize || 'LETTER'] || sizes.LETTER;
@@ -203,7 +277,7 @@ function render() {
         var div = document.createElement('div');
         var isVisible = isElementVisible(el, variables);
         var isSelected = selectedIds.indexOf(el.id) !== -1;
-        div.className = 'el' + (isSelected ? ' selected' : '') + (isVisible ? '' : ' hidden-preview');
+        div.className = 'el el-' + el.type + (isSelected ? ' selected' : '') + (isVisible ? '' : ' hidden-preview');
         div.style.left = el.x + 'px';
         div.style.top = el.y + 'px';
         div.setAttribute('data-id', el.id);
@@ -216,6 +290,8 @@ function render() {
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
+                var effectiveFont = getElementEffectiveFont(el.font);
+                div.style.fontFamily = effectiveFont ? "'" + effectiveFont + "', sans-serif" : "inherit";
                 var textColor = el.color;
                 if (el.isColorFx && el.colorFx) {
                     var evaluatedColor = evaluateFx(el.colorFx, variables);
@@ -227,13 +303,21 @@ function render() {
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
                 div.style.width = getParsedWidth(wVal) + 'px';
                 div.style.whiteSpace = el.wrap === false ? 'nowrap' : 'pre-wrap';
-                div.textContent = el.text;
+                var displayVal = '';
+                if (el.isFx) {
+                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '(Biểu thức Fx)';
+                } else {
+                    displayVal = el.text;
+                }
+                div.textContent = displayVal;
                 break;
             case 'var':
                 div.style.fontSize = el.fontSize + 'px';
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
+                var effectiveFont = getElementEffectiveFont(el.font);
+                div.style.fontFamily = effectiveFont ? "'" + effectiveFont + "', sans-serif" : "inherit";
                 var textColor = el.color;
                 if (el.isColorFx && el.colorFx) {
                     var evaluatedColor = evaluateFx(el.colorFx, variables);
@@ -301,24 +385,52 @@ function render() {
                 div.innerHTML = svg;
                 break;
             case 'image':
-                var img = document.createElement('img');
                 var src = el.imageSrc || '';
                 if (el.dataVar && variables[el.dataVar]) {
                     src = variables[el.dataVar];
                 }
-                img.src = src;
-                img.style.width = '100%';
-                img.style.height = '100%';
-                img.style.display = 'block';
                 
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = getParsedWidth(wVal) + 'px';
-                div.style.height = (el.height || 100) + 'px';
-                div.innerHTML = '';
-                div.appendChild(img);
+                var imgW = getParsedWidth(wVal);
+                var imgH = el.height || 100;
+                var angle = el.rotate || 0;
+                
+                if (angle !== 0) {
+                    var rSize = getRotatedSize(imgW, imgH, angle);
+                    var svg = '<svg width="'+rSize.w+'" height="'+rSize.h+'" style="position:absolute; left:-'+rSize.dx+'px; top:-'+rSize.dy+'px; overflow:visible; display:block;">';
+                    svg += '<g transform="translate('+(rSize.w/2)+' '+(rSize.h/2)+') rotate('+angle+') translate('+(-imgW/2)+' '+(-imgH/2)+')">';
+                    svg += '<image href="'+src+'" xlink:href="'+src+'" width="'+imgW+'" height="'+imgH+'" />';
+                    svg += '</g></svg>';
+                    
+                    div.style.width = imgW + 'px';
+                    div.style.height = imgH + 'px';
+                    div.innerHTML = svg;
+                } else {
+                    var img = document.createElement('img');
+                    img.src = src;
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.display = 'block';
+                    
+                    div.style.width = imgW + 'px';
+                    div.style.height = imgH + 'px';
+                    div.innerHTML = '';
+                    div.appendChild(img);
+                }
                 break;
             case 'table':
-                var bdrStyle = el.showBorder ? (el.borderWidth||1)+'px solid '+(el.borderColor||'#000') : 'none';
+                var bdrW = (el.borderWidth||1) + 'px';
+                var bdrC = el.borderColor||'#000';
+                var bdrStyle = '';
+                if (el.showBorder) {
+                    var bL = el.borderLeft !== false ? bdrW+' solid '+bdrC : 'none';
+                    var bT = el.borderTop !== false ? bdrW+' solid '+bdrC : 'none';
+                    var bR = el.borderRight !== false ? bdrW+' solid '+bdrC : 'none';
+                    var bB = el.borderBottom !== false ? bdrW+' solid '+bdrC : 'none';
+                    bdrStyle = 'border-left:'+bL+';border-top:'+bT+';border-right:'+bR+';border-bottom:'+bB;
+                } else {
+                    bdrStyle = 'border:none';
+                }
                 var hBold = el.headerBold ? 'font-weight:bold;' : '';
                 var hAligns = (el.headerAligns||'center').split(',').map(function(a){return a.trim();});
                 var bAligns = (el.bodyAligns||'left').split(',').map(function(a){return a.trim();});
@@ -349,7 +461,9 @@ function render() {
                 var oddFill = el.oddRowFill || '';
                 var evenFill = el.evenRowFill || '';
 
-                var tbl = '<table style="table-layout:fixed;border-collapse:collapse;width:100%;font-size:'+el.fontSize+'px;'+tColor+'">';
+                var effectiveFont = getElementEffectiveFont(el.font);
+                var tblFont = effectiveFont ? 'font-family:\'' + effectiveFont + '\', sans-serif;' : '';
+                var tbl = '<table style="table-layout:fixed;border-collapse:collapse;width:100%;font-size:'+el.fontSize+'px;'+tblFont+tColor+'">';
                 var parsedWidths = (el.widths || '').split(',').map(function(w){return w.trim();});
                 tbl += '<colgroup>';
                 el.headers.forEach(function(h, i) {
@@ -369,7 +483,7 @@ function render() {
                     el.headers.forEach(function(h,i) {
                         var cellBg = colFills[i] || '';
                         var bgStyle = cellBg ? 'background-color:' + cellBg + ';' : '';
-                        tbl += '<th style="border:'+bdrStyle+';padding:2px 4px;'+hBold+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+'">' +h+'</th>';
+                        tbl += '<th style="'+bdrStyle+';padding:2px 4px;'+hBold+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+'">' +h+'</th>';
                     });
                     tbl += '</tr>';
                 }
@@ -381,7 +495,7 @@ function render() {
                         var cellBg = colFills[i] || rowBg || '';
                         var bgStyle = cellBg ? 'background-color:' + cellBg + ';' : '';
                         var cellVal = (c === undefined || c === null) ? '' : String(c).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-                        tbl += '<td style="border:'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+'">'+cellVal+'</td>';
+                        tbl += '<td style="'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+'">'+cellVal+'</td>';
                     });
                     tbl += '</tr>';
                 });
@@ -390,22 +504,15 @@ function render() {
                 div.innerHTML = tbl;
                 break;
             case 'panel':
-                div.style.width = el.width + 'px';
+                var panelW = (el.width !== undefined && el.width !== null) ? el.width.toString() : '200';
+                div.style.width = getParsedWidth(panelW) + 'px';
                 div.style.height = el.height + 'px';
                 div.style.background = (el.bgColor && el.bgColor !== 'transparent') ? el.bgColor : 'rgba(0,0,0,0)';
-                div.style.border = (el.borderWidth || 0) + 'px solid ' + (el.borderColor || 'transparent');
+                div.style.border = (el.showBorder !== false) ? ((el.borderWidth || 1) + 'px solid ' + (el.borderColor || '#cbd5e1')) : 'none';
                 div.style.boxSizing = 'border-box';
-                div.innerHTML = '';
-                break;
-            case 'columns':
-                var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
-                div.style.width = getParsedWidth(wVal) + 'px';
-                div.style.fontSize = el.fontSize + 'px';
-                div.style.display = 'flex';
-                div.style.gap = '10px';
-                var lAlign = el.leftAlign || 'left';
-                var rAlign = el.rightAlign || 'left';
-                div.innerHTML = '<div style="flex:1;background:#f0f7ff;padding:2px;border-radius:3px;text-align:'+lAlign+'">'+el.left+'</div><div style="flex:1;background:#f0fff0;padding:2px;border-radius:3px;text-align:'+rAlign+'">'+el.right+'</div>';
+                div.style.outline = '1px dashed rgba(137, 180, 250, 0.45)';
+                div.style.outlineOffset = '-1px';
+                div.innerHTML = '<span style="position:absolute;top:2px;left:4px;font-size:8px;color:rgba(137,180,250,0.6);pointer-events:none;user-select:none;letter-spacing:0.5px;">PANEL</span>';
                 break;
             case 'pagebreak':
                 div.style.width = '100%';
@@ -421,6 +528,20 @@ function render() {
                 div.style.justifyContent = 'center';
                 div.style.pointerEvents = 'auto';
                 div.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px; vertical-align:middle;"><circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="9.8" y1="8.2" x2="22" y2="20"></line><line x1="9.8" y1="15.8" x2="22" y2="4"></line></svg> NGẮT TRANG (PAGE BREAK)';
+                break;
+            case 'emptyline':
+                div.style.width = '100%';
+                div.style.height = (el.height || 20) + 'px';
+                div.style.borderTop = '1px dashed #a6adc888';
+                div.style.borderBottom = '1px dashed #a6adc888';
+                div.style.background = 'rgba(166, 173, 200, 0.08)';
+                div.style.color = '#a6adc8';
+                div.style.fontSize = '9px';
+                div.style.display = 'flex';
+                div.style.alignItems = 'center';
+                div.style.justifyContent = 'center';
+                div.style.pointerEvents = 'auto';
+                div.textContent = 'EMPTY LINE (' + (el.height || 20) + 'px)';
                 break;
         }
 
@@ -447,11 +568,67 @@ function render() {
         }
     });
 
+    // 1.5 Auto-push: shift elements below tables/texts/vars that overlap with actual rendered height
+    var pushSources = elements.filter(function(e) {
+        return (e.type === 'table' || e.type === 'text' || e.type === 'var') && !e.parentId && !isOverlayingShape(e);
+    });
+    pushSources.sort(function(a, b) { return a.y - b.y; });
+    var yOffsets = {}; // el.id -> cumulative offset
+    pushSources.forEach(function(srcEl) {
+        var dom = document.querySelector('.el[data-id="' + srcEl.id + '"]');
+        if (!dom) return;
+        
+        var designHeight = getElementHeight(srcEl, variables);
+        var actualHeight = dom.offsetHeight;
+        if (srcEl.type === 'text' || srcEl.type === 'var') {
+            var fs = srcEl.fontSize || 13;
+            var browserLineHeight = fs * 1.4;
+            var lines = Math.max(1, Math.round(actualHeight / browserLineHeight));
+            actualHeight = lines * designHeight;
+        }
+        
+        var currentSrcY = srcEl.y + (yOffsets[srcEl.id] || 0);
+        var actualBottom = currentSrcY + actualHeight;
+
+        // Collect elements below the source's Y
+        var belowEls = [];
+        elements.forEach(function(otherEl) {
+            if (otherEl.id === srcEl.id || otherEl.parentId) return;
+            var currentY = otherEl.y + (yOffsets[otherEl.id] || 0);
+            if (currentY > currentSrcY + 5) {
+                belowEls.push({ el: otherEl, currentY: currentY });
+            }
+        });
+        if (belowEls.length === 0) return;
+        belowEls.sort(function(a, b) { return a.currentY - b.currentY; });
+
+        // Check if the first element overlaps with source
+        if (belowEls[0].currentY >= actualBottom) return;
+
+        // Push all elements below source by the same amount to preserve relative spacing
+        var push = actualBottom - belowEls[0].currentY;
+        belowEls.forEach(function(item) {
+            yOffsets[item.el.id] = (yOffsets[item.el.id] || 0) + push;
+        });
+    });
+    // Apply offsets to DOM
+    console.log("yOffsets before apply:", JSON.stringify(yOffsets));
+    Object.keys(yOffsets).forEach(function(id) {
+        var dom = document.querySelector('.el[data-id="' + id + '"]');
+        if (dom) {
+            var el = elements.find(function(e) { return e.id === +id || e.id === id; });
+            if (el) {
+                dom.style.top = (el.y + yOffsets[id]) + 'px';
+            }
+        }
+    });
+
     // 2. Now calculate total pages dynamically using the actual DOM heights
     var maxY = h; // At least one page height
     elements.forEach(function(el) {
         var elH = getElementHeight(el);
-        var bottom = el.y + elH;
+        var offset = yOffsets[el.id] || 0;
+        var bottom = el.y + offset + elH;
         if (bottom > maxY) {
             maxY = bottom;
         }
@@ -554,6 +731,7 @@ function render() {
 // DRAG
 // ============================================================
 function startDrag(e, id) {
+    saveUndo();
     if (e.button !== 0) return; // Only left click
     e.preventDefault();
     var el = elements.find(function(item) { return item.id === id; });
@@ -612,11 +790,17 @@ function getElementHeight(el, vars) {
         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
         return rSize.h;
     }
-    var dom = document.querySelector('.el[data-id="' + el.id + '"]');
-    if (dom) return dom.offsetHeight;
+    if (el.type === 'image' && el.rotate) {
+        var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
+        return rSize.h;
+    }
+    if (vars === undefined) {
+        var dom = document.querySelector('.el[data-id="' + el.id + '"]');
+        if (dom) return dom.offsetHeight;
+    }
     if (el.type === 'rect') return el.rectH || 20;
     if (el.type === 'line') return el.lineWeight || 1;
-    if (el.type === 'text' || el.type === 'var') return el.fontSize || 13;
+    if (el.type === 'text' || el.type === 'var') return Math.ceil((el.fontSize || 13) * 1.15);
     if (el.type === 'table') {
         var displayData = el.data || [];
         var activeVars = vars || variables;
@@ -628,6 +812,7 @@ function getElementHeight(el, vars) {
     }
     if (el.type === 'image') return el.height || 100;
     if (el.type === 'panel') return el.height || 150;
+    if (el.type === 'emptyline') return el.height || 20;
     return 20;
 }
 
@@ -676,6 +861,37 @@ function onDrag(e) {
     var snapAbsY = null;
     var guideLines = { v: [], h: [] };
     
+    // Determine if element is inside a panel and still within bounds
+    var insidePanel = false;
+    var panelParent = null;
+    if (el.parentId) {
+        panelParent = elements.find(function(p) { return p.id === el.parentId; });
+        if (panelParent) {
+            var ppAbs = getElementAbsPos(panelParent);
+            var ppW = getParsedWidth(panelParent.width) || 200;
+            var ppH = panelParent.height || 150;
+            // Check if element center is still inside panel
+            var cX = rawAbsX + elW / 2;
+            var cY = rawAbsY + elH / 2;
+            insidePanel = (cX >= ppAbs.x && cX <= ppAbs.x + ppW && cY >= ppAbs.y && cY <= ppAbs.y + ppH);
+        }
+    }
+    
+    // If inside panel: snap to panel edges
+    if (insidePanel && panelParent) {
+        var ppAbs2 = getElementAbsPos(panelParent);
+        var ppW2 = getParsedWidth(panelParent.width) || 200;
+        var ppH2 = panelParent.height || 150;
+        // Snap to panel left/right edges
+        if (Math.abs(rawAbsX - ppAbs2.x) < snapThresh) { snapAbsX = ppAbs2.x; guideLines.v.push(ppAbs2.x); }
+        if (Math.abs((rawAbsX + elW) - (ppAbs2.x + ppW2)) < snapThresh) { snapAbsX = ppAbs2.x + ppW2 - elW; guideLines.v.push(ppAbs2.x + ppW2); }
+        if (Math.abs((rawAbsX + elW/2) - (ppAbs2.x + ppW2/2)) < snapThresh) { snapAbsX = ppAbs2.x + ppW2/2 - elW/2; guideLines.v.push(ppAbs2.x + ppW2/2); }
+        // Snap to panel top/bottom edges
+        if (Math.abs(rawAbsY - ppAbs2.y) < snapThresh) { snapAbsY = ppAbs2.y; guideLines.h.push(ppAbs2.y); }
+        if (Math.abs((rawAbsY + elH) - (ppAbs2.y + ppH2)) < snapThresh) { snapAbsY = ppAbs2.y + ppH2 - elH; guideLines.h.push(ppAbs2.y + ppH2); }
+        if (Math.abs((rawAbsY + elH/2) - (ppAbs2.y + ppH2/2)) < snapThresh) { snapAbsY = ppAbs2.y + ppH2/2 - elH/2; guideLines.h.push(ppAbs2.y + ppH2/2); }
+    }
+    
     elements.forEach(function(other) {
         if (other.id === el.id) return;
         
@@ -690,6 +906,14 @@ function onDrag(e) {
             curr = elements.find(function(e) { return e.id === curr.parentId; });
         }
         if (isChildOfDragged) return;
+        
+        // If inside panel: only snap to siblings (same parentId), skip everything else
+        if (insidePanel) {
+            if (other.parentId !== el.parentId) return;
+        } else if (el.parentId) {
+            // Dragged outside panel: skip siblings, snap to outside elements only
+            if (other.parentId === el.parentId) return;
+        }
 
         var othPos = getElementAbsPos(other);
         var othW = getElementWidth(other);
@@ -810,8 +1034,10 @@ function onDrag(e) {
                 var pPos = getElementAbsPos(parent);
                 var relX = targetAbsX - pPos.x;
                 var relY = targetAbsY - pPos.y;
-                relX = Math.max(0, Math.min(parent.width - itemInfo.width, relX));
-                relY = Math.max(0, Math.min(parent.height - itemInfo.height, relY));
+                var pW = getParsedWidth(parent.width) || 200;
+                var pH = parent.height || 150;
+                relX = Math.max(0, Math.min(pW - itemInfo.width, relX));
+                relY = Math.max(0, Math.min(pH - itemInfo.height, relY));
                 item.x = relX;
                 item.y = relY;
             }
@@ -863,14 +1089,35 @@ function endDrag(e) {
             var isDrag = dragState.hasMoved;
             
             if (!isDrag) {
-                // If it wasn't dragged, toggle or select
-                if (dragState.shouldDeselectOnMouseUp) {
-                    selectElement(el.id, e);
-                } else if (!e.ctrlKey && !e.metaKey) {
-                    // Normal click: select exclusively
-                    selectElement(el.id, e);
+                var now = Date.now();
+                if (lastClickedId === el.id && (now - lastClickTime) < 300) {
+                    if (el.type === 'var') {
+                        if (el.isFx) {
+                            openFxEditor(el.id, 'fxExpr');
+                        } else {
+                            editVar(el.varName, e);
+                        }
+                    } else if (el.type === 'text') {
+                        if (el.isFx) {
+                            openFxEditor(el.id, 'fxExpr');
+                        }
+                    }
+                    lastClickTime = 0;
+                    lastClickedId = null;
+                } else {
+                    lastClickTime = now;
+                    lastClickedId = el.id;
+                    // If it wasn't dragged, toggle or select
+                    if (dragState.shouldDeselectOnMouseUp) {
+                        selectElement(el.id, e);
+                    } else if (!e.ctrlKey && !e.metaKey) {
+                        // Normal click: select exclusively
+                        selectElement(el.id, e);
+                    }
                 }
             } else {
+                lastClickTime = 0;
+                lastClickedId = null;
                 // Keep the multi-selection as is and just refresh the toolbar
                 updateAlignToolbar();
                 
@@ -890,14 +1137,16 @@ function endDrag(e) {
                             // Do not parent to a panel that is also part of the dragging group to avoid cycles
                             if (selectedIds.indexOf(p.id) !== -1) return false;
                             var pAbs = getElementAbsPos(p);
-                            return (elCenterX >= pAbs.x && elCenterX <= pAbs.x + p.width &&
-                                    elCenterY >= pAbs.y && elCenterY <= pAbs.y + p.height);
+                            var pW = getParsedWidth(p.width) || 200;
+                            var pH = p.height || 150;
+                            return (elCenterX >= pAbs.x && elCenterX <= pAbs.x + pW &&
+                                    elCenterY >= pAbs.y && elCenterY <= pAbs.y + pH);
                         });
                         
                         var targetParentId = null;
                         if (containingPanels.length > 0) {
                             containingPanels.sort(function(a, b) {
-                                return (a.width * a.height) - (b.width * b.height);
+                                return ((getParsedWidth(a.width)||200) * (a.height||150)) - ((getParsedWidth(b.width)||200) * (b.height||150));
                             });
                             targetParentId = containingPanels[0].id;
                         }
@@ -922,6 +1171,7 @@ function endDrag(e) {
 // SELECT / DESELECT
 // ============================================================
 function selectElement(id, event) {
+    blurActivePropertyInput();
     var isCtrl = event && (event.ctrlKey || event.metaKey);
     if (isCtrl) {
         var idx = selectedIds.indexOf(id);
@@ -941,6 +1191,7 @@ function selectElement(id, event) {
 }
 function deselect(e) {
     if (e.target.classList.contains('canvas-wrap') || e.target.id === 'paper') {
+        blurActivePropertyInput();
         var isCtrl = e && (e.ctrlKey || e.metaKey);
         if (!isCtrl) {
             selectedId = null;
@@ -1001,6 +1252,7 @@ function changeElementParent(elementId, newParentIdStr) {
 function renderProps() {
     var panel = document.getElementById('propsContent');
     if (!selectedId) {
+        panel.removeAttribute('data-el-id');
         var pageHtml = '';
         pageHtml += '<h3>Page Settings</h3>';
         
@@ -1021,7 +1273,16 @@ function renderProps() {
         pageHtml += '<div class="prop-row"><label>Default font</label><select onchange="setPageConfig(\'defaultFont\',this.value)">';
         pageHtml += '<option '+(pageConfig.defaultFont==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
         pageHtml += '<option '+(pageConfig.defaultFont==='Times New Roman'?'selected':'')+' value="Times New Roman">Times New Roman</option>';
+        if (pageConfig.customFonts) {
+            pageConfig.customFonts.forEach(function(font) {
+                pageHtml += '<option '+(pageConfig.defaultFont===font.name?'selected':'')+' value="'+font.name+'">'+font.name+'</option>';
+            });
+        }
         pageHtml += '</select></div>';
+        var activeFont = pageConfig.defaultFont || 'Roboto';
+        if (activeFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeFont])) {
+            pageHtml += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong phần "Custom Fonts" bên dưới.</div>';
+        }
         
         // Background color
         pageHtml += '<div class="prop-row"><label>Bg color</label><input type="color" value="'+(pageConfig.bgColor||'#ffffff')+'" onchange="setPageConfig(\'bgColor\',this.value)">';
@@ -1034,17 +1295,34 @@ function renderProps() {
         pageHtml += '<div class="prop-row"><label>Right (R)</label><input type="number" value="'+pageConfig.marginRight+'" onchange="setPageConfig(\'marginRight\',+this.value)"></div>';
         pageHtml += '<div class="prop-row"><label>Bottom (B)</label><input type="number" value="'+pageConfig.marginBottom+'" onchange="setPageConfig(\'marginBottom\',+this.value)"></div>';
         
+        // Custom Fonts Section
+        pageHtml += '<h3>Custom Fonts</h3>';
+        if (pageConfig.customFonts && pageConfig.customFonts.length > 0) {
+            pageConfig.customFonts.forEach(function(font, idx) {
+                pageHtml += '<div class="prop-row" style="background:#242535; border:1px solid #313244; padding:6px; border-radius:6px; margin:4px 0; justify-content:space-between; align-items:center;">';
+                pageHtml += '<span style="font-family:\''+font.name+'\', monospace; font-size:12px; font-weight:600; color:#89b4fa;">'+font.name+'</span>';
+                pageHtml += '<div style="display:flex; gap:4px;">';
+                pageHtml += '<button onclick="openEditFontModal('+idx+')" style="width:auto; margin:0; padding:2px 6px; color:#89b4fa; background:transparent; border:1px solid #45475a; border-radius:4px; font-size:10px; cursor:pointer;" title="Edit font">✎</button>';
+                pageHtml += '<button onclick="deleteCustomFont('+idx+')" style="width:auto; margin:0; padding:2px 6px; color:#f38ba8; background:transparent; border:1px solid #45475a; border-radius:4px; font-size:10px; cursor:pointer;" title="Delete font">✕</button>';
+                pageHtml += '</div></div>';
+            });
+        } else {
+            pageHtml += '<div style="color:#6c7086; font-size:11px; margin:4px 0 8px;">No custom fonts added yet</div>';
+        }
+        pageHtml += '<button onclick="openAddFontModal()" style="background:#313244; color:#89b4fa; border:1px solid #45475a; border-radius:6px; margin-top:6px; cursor:pointer; width:100%;">+ Add Custom Font</button>';
+
         panel.innerHTML = pageHtml;
         return;
     }
     var el = elements.find(function(e) { return e.id === selectedId; });
     if (!el) return;
+    panel.setAttribute('data-el-id', el.id);
     var h = '';
     h += '<div class="prop-row"><label>Type</label><input disabled value="'+el.type+'"></div>';
     h += '<div class="prop-row"><label>Layer name</label><input type="text" value="'+(el.customName||'')+'" onchange="setProp(\'customName\',this.value)" placeholder="Layer name..."></div>';
     
     // Group X and Y into a single Position row
-    if (el.type !== 'pagebreak') {
+    if (el.type !== 'pagebreak' && el.type !== 'emptyline') {
         h += '<div class="prop-row"><label>Position</label>' +
              '<div style="display:flex; gap:4px; flex:1; min-width:0;">' +
              '<input type="number" value="'+el.x+'" onchange="setProp(\'x\',+this.value)" style="min-width:0; flex:1;">' +
@@ -1056,7 +1334,7 @@ function renderProps() {
              '</div>';
     }
 
-    if (el.type !== 'pagebreak') {
+    if (el.type !== 'pagebreak' && el.type !== 'emptyline') {
         var useShowFx = !!el.useShowFx;
         h += '<div class="prop-row"><label>Visibility (Fx)</label>' +
              '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
@@ -1069,7 +1347,7 @@ function renderProps() {
         }
     }
     
-    if (el.type !== 'panel' && el.type !== 'pagebreak') {
+    if (el.type !== 'panel' && el.type !== 'pagebreak' && el.type !== 'emptyline') {
         h += '<div class="prop-row"><label>Group</label><select onchange="changeElementParent('+el.id+', this.value)">';
         h += '<option value="" ' + (!el.parentId ? 'selected' : '') + '>-- No Group --</option>';
         elements.forEach(function(item) {
@@ -1081,7 +1359,34 @@ function renderProps() {
     }
 
     if (el.type === 'text') {
-        h += '<div class="prop-row"><label>Text</label><textarea onchange="setProp(\'text\',this.value)">'+el.text+'</textarea></div>';
+        var isFx = !!el.isFx;
+        h += '<div class="prop-row"><label>Use Fx</label>' +
+             '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
+             '<input type="checkbox" '+(isFx?'checked':'')+' onchange="toggleUseTextFx('+el.id+', this.checked)">' +
+             (isFx ? '<button onclick="openFxEditor('+el.id+', \'fxExpr\')" style="width:auto; margin:0; padding:2px 8px; background:#89b4fa; color:#1e1e2e; border:1px solid #89b4fa; border-radius:4px; font-weight:bold; cursor:pointer;" title="Edit Fx expression">{Fx}</button>' : '') +
+             '</div></div>';
+        if (isFx) {
+            if (el.fxExpr) {
+                var exprPreview = el.fxExpr.length > 25 ? el.fxExpr.substring(0, 25) + '...' : el.fxExpr;
+                h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Fx: ' + exprPreview + '</div>';
+            }
+        } else {
+            h += '<div class="prop-row"><label>Text</label><textarea onchange="setProp(\'text\',this.value)">'+el.text+'</textarea></div>';
+        }
+        h += '<div class="prop-row"><label>Font family</label><select onchange="setProp(\'font\',this.value)">';
+        h += '<option '+(el.font==='' || !el.font?'selected':'')+' value="">-- Inherit default --</option>';
+        h += '<option '+(el.font==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
+        h += '<option '+(el.font==='Times New Roman'?'selected':'')+' value="Times New Roman">Times New Roman</option>';
+        if (pageConfig.customFonts) {
+            pageConfig.customFonts.forEach(function(font) {
+                h += '<option '+(el.font===font.name?'selected':'')+' value="'+font.name+'">'+font.name+'</option>';
+            });
+        }
+        h += '</select></div>';
+        var activeElFont = el.font;
+        if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
+            h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
+        }
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
@@ -1120,6 +1425,20 @@ function renderProps() {
             h += '</select></div>';
         }
         h += '<div class="prop-row"><label>Prefix</label><input value="'+(el.prefix||'')+'" onchange="setProp(\'prefix\',this.value)"></div>';
+        h += '<div class="prop-row"><label>Font family</label><select onchange="setProp(\'font\',this.value)">';
+        h += '<option '+(el.font==='' || !el.font?'selected':'')+' value="">-- Inherit default --</option>';
+        h += '<option '+(el.font==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
+        h += '<option '+(el.font==='Times New Roman'?'selected':'')+' value="Times New Roman">Times New Roman</option>';
+        if (pageConfig.customFonts) {
+            pageConfig.customFonts.forEach(function(font) {
+                h += '<option '+(el.font===font.name?'selected':'')+' value="'+font.name+'">'+font.name+'</option>';
+            });
+        }
+        h += '</select></div>';
+        var activeElFont = el.font;
+        if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
+            h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
+        }
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
@@ -1210,6 +1529,7 @@ function renderProps() {
         
         h += '<div class="prop-row"><label>Width (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Rotation (°)</label><input type="number" value="'+(el.rotate||0)+'" onchange="setProp(\'rotate\',+this.value)" min="-360" max="360"></div>';
     }
     if (el.type === 'table') {
         h += '<div class="prop-row"><label>Show header</label><input type="checkbox" '+(el.showHeader!==false?'checked':'')+' onchange="setProp(\'showHeader\',this.checked)"></div>';
@@ -1222,6 +1542,20 @@ function renderProps() {
         h += '</select></div>';
         var colSummary = getColumnsSummary(el);
         h += '<div class="prop-row"><label>Columns</label><button onclick="openColumnsEditor('+el.id+')" style="width:auto; flex:1; margin:0; padding:4px 8px; background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; cursor:pointer; font-size:11px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="Click to edit columns &amp; mappings">'+colSummary+'</button></div>';
+        h += '<div class="prop-row"><label>Font family</label><select onchange="setProp(\'font\',this.value)">';
+        h += '<option '+(el.font==='' || !el.font?'selected':'')+' value="">-- Inherit default --</option>';
+        h += '<option '+(el.font==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
+        h += '<option '+(el.font==='Times New Roman'?'selected':'')+' value="Times New Roman">Times New Roman</option>';
+        if (pageConfig.customFonts) {
+            pageConfig.customFonts.forEach(function(font) {
+                h += '<option '+(el.font===font.name?'selected':'')+' value="'+font.name+'">'+font.name+'</option>';
+            });
+        }
+        h += '</select></div>';
+        var activeElFont = el.font;
+        if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
+            h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
+        }
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Widths</label><input value="'+el.widths+'" onchange="setProp(\'widths\',this.value)" placeholder="*,*,* or 30,*,80"></div>';
@@ -1237,35 +1571,33 @@ function renderProps() {
         h += '<div class="prop-row"><label>Even row bg</label><input type="color" value="'+((el.evenRowFill && el.evenRowFill.startsWith('#')) ? el.evenRowFill : '#ffffff')+'" onchange="setProp(\'evenRowFill\',this.value)">';
         h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'evenRowFill\',\'\')">Clear</button></div>';
         h += '<div class="prop-row"><label>Border</label><input type="checkbox" '+(el.showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
+        if (el.showBorder) {
+            h += '<div class="prop-row"><label>Border Sides</label>';
+            h += '<div style="display:flex; gap:12px; align-items:center; flex:1;">';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderLeft!==false?'checked':'')+' onchange="setProp(\'borderLeft\',this.checked)">L</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderTop!==false?'checked':'')+' onchange="setProp(\'borderTop\',this.checked)">T</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderRight!==false?'checked':'')+' onchange="setProp(\'borderRight\',this.checked)">R</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderBottom!==false?'checked':'')+' onchange="setProp(\'borderBottom\',this.checked)">B</label>';
+            h += '</div></div>';
+        }
         h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
     }
-    if (el.type === 'columns') {
-        h += '<div class="prop-row"><label>Left column</label><textarea onchange="setProp(\'left\',this.value)">'+el.left+'</textarea></div>';
-        h += '<div class="prop-row"><label>Left align</label><select onchange="setProp(\'leftAlign\',this.value)">' +
-             '<option '+(el.leftAlign==='left'?'selected':'')+' value="left">left</option>' +
-             '<option '+(el.leftAlign==='center'?'selected':'')+' value="center">center</option>' +
-             '<option '+(el.leftAlign==='right'?'selected':'')+' value="right">right</option>' +
-             '<option '+(el.leftAlign==='justify'?'selected':'')+' value="justify">justify</option>' +
-             '</select></div>';
-        h += '<div class="prop-row"><label>Right column</label><textarea onchange="setProp(\'right\',this.value)">'+el.right+'</textarea></div>';
-        h += '<div class="prop-row"><label>Right align</label><select onchange="setProp(\'rightAlign\',this.value)">' +
-             '<option '+(el.rightAlign==='left'?'selected':'')+' value="left">left</option>' +
-             '<option '+(el.rightAlign==='center'?'selected':'')+' value="center">center</option>' +
-             '<option '+(el.rightAlign==='right'?'selected':'')+' value="right">right</option>' +
-             '<option '+(el.rightAlign==='justify'?'selected':'')+' value="justify">justify</option>' +
-             '</select></div>';
-        h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
-    }
     if (el.type === 'panel') {
-        h += '<div class="prop-row"><label>Width (W)</label><input type="number" value="'+el.width+'" onchange="setProp(\'width\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Width (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Height (H)</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
         h += '<div class="prop-row"><label>Bg color</label><input type="color" value="'+((el.bgColor && el.bgColor.startsWith('#')) ? el.bgColor : '#ffffff')+'" onchange="setProp(\'bgColor\',this.value)">';
         h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'bgColor\',\'transparent\')">Clear</button></div>';
-        h += '<div class="prop-row"><label>Border width</label><input type="number" value="'+(el.borderWidth||0)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#cbd5e1')+'" onchange="setProp(\'borderColor\',this.value)">';
-        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Clear</button></div>';
+        var showBorder = el.showBorder !== false;
+        h += '<div class="prop-row"><label>Show border</label><input type="checkbox" '+(showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
+        if (showBorder) {
+            h += '<div class="prop-row"><label>Border width</label><input type="number" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+            h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#cbd5e1')+'" onchange="setProp(\'borderColor\',this.value)">';
+            h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Clear</button></div>';
+        }
+    }
+    if (el.type === 'emptyline') {
+        h += '<div class="prop-row"><label>Height (px)</label><input type="number" value="'+(el.height||20)+'" onchange="setProp(\'height\',+this.value)"></div>';
     }
     
     h += '<div style="margin-top:10px; display:flex; gap:6px;">';
@@ -1292,8 +1624,13 @@ function generatePolygonPoints(sides, w, h) {
 }
 
 function generatePolygonPointsFromSides() {
-    if (!selectedId) return;
-    var el = elements.find(function(e) { return e.id === selectedId; });
+    var targetId = selectedId;
+    var propsContent = document.getElementById('propsContent');
+    if (propsContent && propsContent.hasAttribute('data-el-id')) {
+        targetId = parseInt(propsContent.getAttribute('data-el-id')) || selectedId;
+    }
+    if (!targetId) return;
+    var el = elements.find(function(e) { return e.id === targetId; });
     if (!el || el.type !== 'shape' || el.shapeType !== 'polygon') return;
     
     var sides = el.sides || 3;
@@ -1311,8 +1648,14 @@ function generatePolygonPointsFromSides() {
 }
 
 function setProp(k, v) {
-    if (!selectedId) return;
-    var el = elements.find(function(e) { return e.id === selectedId; });
+    var targetId = selectedId;
+    var propsContent = document.getElementById('propsContent');
+    if (propsContent && propsContent.hasAttribute('data-el-id')) {
+        targetId = parseInt(propsContent.getAttribute('data-el-id')) || selectedId;
+    }
+    if (!targetId) return;
+    saveUndo();
+    var el = elements.find(function(e) { return e.id === targetId; });
     if (!el) return;
     
     if (k === 'width' && el.type === 'pagebreak') {
@@ -1344,7 +1687,7 @@ function setProp(k, v) {
     }
     
     render();
-    if (k === 'shapeType' || k === 'dataVar' || k === 'isFx') {
+    if (k === 'shapeType' || k === 'dataVar' || k === 'isFx' || k === 'showBorder') {
         renderProps();
     }
 }
@@ -1451,6 +1794,9 @@ function getElementOutlineLabel(el) {
     }
     switch(el.type) {
         case 'text':
+            if (el.isFx) {
+                return el.fxExpr ? 'Fx: ' + el.fxExpr : 'Text (Fx)';
+            }
             return el.text || 'Text';
         case 'var':
             return '{' + el.varName + '}';
@@ -1465,12 +1811,12 @@ function getElementOutlineLabel(el) {
             return el.dataVar ? 'Image {' + el.dataVar + '}' : 'Image';
         case 'table':
             return 'Table (' + el.headers.length + ' cols)';
-        case 'columns':
-            return '2 Columns';
         case 'panel':
             return 'Panel #' + el.id;
         case 'pagebreak':
             return 'Page Break (Y: ' + el.y + ')';
+        case 'emptyline':
+            return 'Empty Line (' + (el.height || 20) + 'px)';
     }
     return 'Element';
 }
@@ -1516,7 +1862,7 @@ function addVarElement(key) {
     
     var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     if (isImg) {
-        Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, dataVar:key });
+        Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, dataVar:key, rotate:0 });
     } else {
         Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
     }
@@ -1728,8 +2074,9 @@ function getElementWidth(el) {
         }
         return getParsedWidth(el.width) || 500;
     }
-    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'columns' || el.type === 'image' || el.type === 'panel') {
-        return getParsedWidth(el.width) || 100;
+    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel') {
+        var w = getParsedWidth(el.width) || 100;
+        return (el.type === 'text' || el.type === 'var') ? Math.max(20, w) : w;
     }
     if (el.type === 'line') {
         return getParsedWidth(el.lineWidth) || 100;
@@ -1743,6 +2090,10 @@ function getElementWidth(el) {
 function elementToNode(el, imagesDict) {
     switch(el.type) {
         case 'text':
+            var displayText = el.text;
+            if (el.isFx) {
+                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+            }
             var textColor = el.color;
             if (el.isColorFx && el.colorFx) {
                 var evaluatedColor = evaluateFx(el.colorFx, variables);
@@ -1750,7 +2101,7 @@ function elementToNode(el, imagesDict) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
+            return { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
         case 'var':
             var displayVal = '';
             if (el.isFx) {
@@ -1766,9 +2117,11 @@ function elementToNode(el, imagesDict) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: val, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
+            return { text: parseHtmlToPdfText(val), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
         case 'line':
             return { canvas: [{ type:'line', x1:0, y1:0, x2:el.lineWidth, y2:0, lineWidth:el.lineWeight, lineColor:el.color }] };
+        case 'emptyline':
+            return { text: ' ', fontSize: 1, margin: [0, 0, 0, (el.height || 20)] };
         case 'rect':
             return { canvas: [{ type:'rect', x:0, y:0, w:el.rectW, h:el.rectH, r:el.radius, lineWidth:el.lineWeight, lineColor:el.color, color:el.fillColor||undefined }] };
         case 'shape':
@@ -1840,6 +2193,12 @@ function elementToNode(el, imagesDict) {
                 });
             }
 
+            var cellBorder = el.showBorder ? [
+                el.borderLeft !== false,
+                el.borderTop !== false,
+                el.borderRight !== false,
+                el.borderBottom !== false
+            ] : undefined;
             var body = [];
             var showH = el.showHeader !== false;
             if (showH) {
@@ -1849,7 +2208,8 @@ function elementToNode(el, imagesDict) {
                         text: h,
                         bold: el.headerBold !== false,
                         alignment: pdfHAligns[i] || pdfHAligns[0] || 'center',
-                        fillColor: cellBg || undefined
+                        fillColor: cellBg || undefined,
+                        border: cellBorder
                     };
                 }));
             }
@@ -1864,7 +2224,8 @@ function elementToNode(el, imagesDict) {
                         alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
                         bold: el.bold || false,
                         italics: el.italic || false,
-                        fillColor: cellBg || undefined
+                        fillColor: cellBg || undefined,
+                        border: cellBorder
                     };
                 }));
             });
@@ -1874,22 +2235,26 @@ function elementToNode(el, imagesDict) {
                 hLineColor: function() { return el.borderColor||'#000'; },
                 vLineColor: function() { return el.borderColor||'#000'; }
             } : 'noBorders';
-            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000' };
-        case 'columns':
-            return { 
-                columns: [
-                    { text: el.left, alignment: el.leftAlign || 'left' },
-                    { text: el.right, alignment: el.rightAlign || 'left' }
-                ], 
-                fontSize: el.fontSize, 
-                columnGap: 10 
-            };
+            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {
                 var src = el.imageSrc;
                 if (el.dataVar && variables[el.dataVar]) {
                     src = variables[el.dataVar];
                 }
+                var imgW = getParsedWidth(el.width);
+                var imgH = el.height || 100;
+                var angle = el.rotate || 0;
+
+                if (angle !== 0) {
+                    var rSize = getRotatedSize(imgW, imgH, angle);
+                    var svgStr = '<svg width="'+rSize.w+'" height="'+rSize.h+'" viewBox="0 0 '+rSize.w+' '+rSize.h+'" xmlns="http://www.w3.org/2000/svg">';
+                    svgStr += '<g transform="translate('+(rSize.w/2)+' '+(rSize.h/2)+') rotate('+angle+') translate('+(-imgW/2)+' '+(-imgH/2)+')">';
+                    svgStr += '<image href="'+src+'" xlink:href="'+src+'" width="'+imgW+'" height="'+imgH+'" />';
+                    svgStr += '</g></svg>';
+                    return { svg: svgStr, width: rSize.w, height: rSize.h };
+                }
+
                 if (src.startsWith('data:image/svg+xml')) {
                     var base64Idx = src.indexOf(';base64,');
                     if (base64Idx !== -1) {
@@ -1922,7 +2287,39 @@ function elementToNode(el, imagesDict) {
             return { text: '[No image]', fontSize: 11, italics: true };
         case 'panel':
             var children = elements.filter(function(e) { return e.parentId === el.id; });
-            var childrenLayout = buildLayout(children, 0, 0, imagesDict);
+            var childrenLayout = [];
+            children.forEach(function(child) {
+                if (!isElementVisible(child, variables)) return;
+                var node = elementToNode(child, imagesDict);
+                if (node) {
+                    var x = child.x || 0;
+                    var y = child.y || 0;
+                    var w = getElementWidth(child);
+                    
+                    if (child.type === 'shape') {
+                        var rSize = getRotatedSize(child.width || 100, child.height || 50, child.rotate || 0);
+                        x = x - rSize.dx;
+                        y = y - rSize.dy;
+                        w = rSize.w;
+                    } else if (child.type === 'image' && child.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(child.width) || 100, child.height || 100, child.rotate || 0);
+                        x = x - rSize.dx;
+                        y = y - rSize.dy;
+                        w = rSize.w;
+                    }
+                    
+                    var wrappedNode = {
+                        columns: [
+                            {
+                                width: w,
+                                stack: [ node ]
+                            }
+                        ],
+                        relativePosition: { x: x, y: y }
+                    };
+                    childrenLayout.push(wrappedNode);
+                }
+            });
             return {
                 stack: [
                     {
@@ -1930,11 +2327,11 @@ function elementToNode(el, imagesDict) {
                             {
                                 type: 'rect',
                                 x: 0, y: 0,
-                                w: el.width,
+                                w: getParsedWidth(el.width),
                                 h: el.height,
                                 color: el.bgColor || 'transparent',
-                                lineWidth: el.borderWidth || 0,
-                                lineColor: el.borderColor || 'transparent'
+                                lineWidth: (el.showBorder !== false) ? (el.borderWidth || 1) : 0,
+                                lineColor: (el.showBorder !== false) ? (el.borderColor || '#cbd5e1') : 'transparent'
                             }
                         ]
                     },
@@ -1957,7 +2354,32 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         var w2 = getElementWidth(el2);
         var x1 = el1.x;
         var x2 = el2.x;
-        return Math.max(x1, x2) < Math.min(x1 + w1, x2 + w2);
+        var intersection = Math.min(x1 + w1, x2 + w2) - Math.max(x1, x2);
+        if (intersection <= 0) return false;
+        var minW = Math.min(w1, w2);
+        if (isNaN(minW) || minW <= 0) return false;
+        return (intersection / minW) > 0.5;
+    }
+    function verticalOverlap(el1, el2) {
+        var h1 = getElementHeight(el1, variables);
+        var h2 = getElementHeight(el2, variables);
+        var y1 = el1.y;
+        var y2 = el2.y;
+        var intersection = Math.min(y1 + h1, y2 + h2) - Math.max(y1, y2);
+        return intersection > 0;
+    }
+    function isOverlayingShape(el) {
+        if (el.type === 'shape' || el.type === 'rect' || el.type === 'line') return false;
+        for (var i = 0; i < layoutElements.length; i++) {
+            var other = layoutElements[i];
+            if (other.id === el.id) continue;
+            if (other.type === 'shape' || other.type === 'rect' || other.type === 'line') {
+                if (horizontalOverlap(el, other) && verticalOverlap(el, other)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     var content = [];
     
@@ -1965,7 +2387,7 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
     var layoutElements = elementsList.filter(function(e) {
         return e.type !== 'pagebreak' && isElementVisible(e, variables);
     });
-    if (layoutElements.length === 0) return content;
+    if (layoutElements.length === 0) return [];
 
     var activePBs = pageBreakYs ? pageBreakYs.slice() : [];
     
@@ -1975,21 +2397,28 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
     
     sorted.forEach(function(el) {
         var placed = false;
-        for (var i = 0; i < rows.length; i++) {
-            var row = rows[i];
-            var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
-            if (Math.abs(el.y - avgY) < 10) { // Y threshold of 10 pixels
-                var overlaps = false;
-                for (var j = 0; j < row.length; j++) {
-                    if (horizontalOverlap(el, row[j])) {
-                        overlaps = true;
+        var isShapeOrOverlay = el.type === 'shape' || el.type === 'rect' || el.type === 'line' || isOverlayingShape(el);
+        if (!isShapeOrOverlay) {
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var hasShapeOrOverlay = row.some(function(rEl) {
+                    return rEl.type === 'shape' || rEl.type === 'rect' || rEl.type === 'line' || isOverlayingShape(rEl);
+                });
+                if (hasShapeOrOverlay) continue;
+                var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
+                if (Math.abs(el.y - avgY) < 10) { // Y threshold of 10 pixels
+                    var overlaps = false;
+                    for (var j = 0; j < row.length; j++) {
+                        if (horizontalOverlap(el, row[j])) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    if (!overlaps) {
+                        row.push(el);
+                        placed = true;
                         break;
                     }
-                }
-                if (!overlaps) {
-                    row.push(el);
-                    placed = true;
-                    break;
                 }
             }
         }
@@ -2006,6 +2435,7 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
     });
 
     var prevRowBottom = baseMarginTop;
+    var renderedElements = []; // Store { el, absoluteRenderedBottom }
 
     // Process each row
     rows.forEach(function(row) {
@@ -2021,12 +2451,30 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
 
         var currentRowTop = Math.min.apply(null, row.map(function(e){ return e.y; }));
         
+        // Calculate the minimum Y position for this row to avoid horizontal overlaps
+        var minRowY = baseMarginTop;
+        row.forEach(function(el) {
+            renderedElements.forEach(function(prev) {
+                if (horizontalOverlap(el, prev.el)) {
+                    // Skip overlap restriction if either is a shape, rect, line, or overlay
+                    if (el.type === 'shape' || el.type === 'rect' || el.type === 'line' || isOverlayingShape(el) ||
+                        prev.el.type === 'shape' || prev.el.type === 'rect' || prev.el.type === 'line' || isOverlayingShape(prev.el)) {
+                        return;
+                    }
+                    var elOffsetY = el.y - currentRowTop;
+                    minRowY = Math.max(minRowY, prev.absoluteRenderedBottom - elOffsetY);
+                }
+            });
+        });
+
+        var targetRowTop = Math.max(currentRowTop, minRowY);
+
         // Check if we crossed any page break
         var crossedPB = null;
         if (activePBs.length > 0) {
             for (var i = 0; i < activePBs.length; i++) {
                 var pbY = activePBs[i];
-                if (prevRowBottom <= pbY && pbY <= currentRowTop) {
+                if (prevRowBottom <= pbY && pbY <= targetRowTop) {
                     crossedPB = pbY;
                     // Remove all page breaks up to this one
                     activePBs.splice(0, i + 1);
@@ -2037,16 +2485,35 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
 
         var gapY;
         if (crossedPB !== null) {
-            gapY = currentRowTop - crossedPB;
+            gapY = targetRowTop - crossedPB;
             prevRowBottom = crossedPB;
         } else {
-            gapY = currentRowTop - prevRowBottom;
+            gapY = targetRowTop - prevRowBottom;
         }
-        if (gapY < 0) gapY = 0;
+        if (gapY < 0) {
+            if (crossedPB !== null) {
+                gapY = 0;
+            }
+        }
 
-        var currentRowBottom = Math.max.apply(null, row.map(function(e){
-            return e.y + getElementHeight(e, variables);
-        }));
+        var absoluteRowTop = prevRowBottom + gapY;
+
+        var currentRowBottom = absoluteRowTop;
+        var isRelativeRow = row.some(function(e) {
+            return e.type === 'shape' || e.type === 'rect' || e.type === 'line' || isOverlayingShape(e);
+        });
+
+        row.forEach(function(el) {
+            var elHeight = getElementHeight(el, variables);
+            var elOffsetY = el.y - currentRowTop;
+            var elBottom = absoluteRowTop + elOffsetY + elHeight;
+            renderedElements.push({ el: el, absoluteRenderedBottom: elBottom });
+            if (!isRelativeRow) {
+                if (elBottom > currentRowBottom) {
+                    currentRowBottom = elBottom;
+                }
+            }
+        });
 
         var rowNode = null;
         if (row.length === 1) {
@@ -2058,15 +2525,24 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     leftMargin = el.x - rSize.dx - baseMarginLeft;
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
+                    leftMargin = el.x - rSize.dx - baseMarginLeft;
                 }
                 var elW = getElementWidth(el);
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     elW = rSize.w;
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
+                    elW = rSize.w;
                 }
                 var maxAllowedW = pageWidth - rightMargin - el.x;
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                    maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
                     maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
                 }
                 var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
@@ -2078,20 +2554,27 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 if (widthVal && widthVal.toString().indexOf('%') !== -1) {
                     colNode.width = widthVal.toString().trim();
                 }
-                rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
+                if (isRelativeRow) {
+                    rowNode = { columns: [ colNode ], relativePosition: { x: leftMargin, y: gapY } };
+                } else {
+                    rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
+                }
             }
         } else {
             // Multiple elements on the same row: wrap in columns
-            // Use spacer columns for gaps instead of margin (pdfMake consumes margin from width)
             var columns = [];
             var firstEl = row[0];
             var colMarginLeft = firstEl.x - baseMarginLeft;
+            var firstRSize = null;
             if (firstEl.type === 'shape') {
-                var rSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
-                colMarginLeft = firstEl.x - rSize.dx - baseMarginLeft;
+                firstRSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
+                colMarginLeft = firstEl.x - firstRSize.dx - baseMarginLeft;
+            } else if (firstEl.type === 'image' && firstEl.rotate) {
+                firstRSize = getRotatedSize(getParsedWidth(firstEl.width) || 100, firstEl.height || 100, firstEl.rotate || 0);
+                colMarginLeft = firstEl.x - firstRSize.dx - baseMarginLeft;
             }
 
-            var prevEnd = (firstEl.type === 'shape' ? (firstEl.x - rSize.dx) : firstEl.x);
+            var prevEnd = (firstRSize ? (firstEl.x - firstRSize.dx) : firstEl.x);
 
             row.forEach(function(el, idx) {
                 var node = elementToNode(el, imagesDict);
@@ -2100,19 +2583,27 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                         elW = rSize.w;
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
+                        elW = rSize.w;
                     }
                     
                     var maxAllowedW = pageWidth - rightMargin - el.x;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                         maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
+                        maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
                     }
                     var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
 
-                    // Insert spacer column for gap between elements
                     var currentStart = el.x;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        currentStart = el.x - rSize.dx;
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width) || 100, el.height || 100, el.rotate || 0);
                         currentStart = el.x - rSize.dx;
                     }
                     var gap = currentStart - prevEnd;
@@ -2120,7 +2611,6 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                         columns.push({ width: gap, text: '' });
                     }
 
-                    // Vertical offset: align element relative to row top
                     var elOffsetY = el.y - currentRowTop;
                     if (elOffsetY > 0) {
                         node.margin = [0, elOffsetY, 0, 0];
@@ -2151,13 +2641,16 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
             content.push(rowNode);
         }
 
-        prevRowBottom = currentRowBottom;
+        if (!isRelativeRow) {
+            prevRowBottom = currentRowBottom;
+        }
     });
 
     return content;
 }
 
 function buildDoc() {
+    registerFonts();
     var imagesDict = {};
     
     // Sort all pagebreaks by Y coordinate
@@ -2169,11 +2662,7 @@ function buildDoc() {
     
     var content = buildLayout(topLevelElements, pageConfig.marginLeft, pageConfig.marginTop, imagesDict, pageBreakYs);
     
-    var fontName = 'Roboto';
-    if (pageConfig.defaultFont === 'Times New Roman' && typeof pdfMake !== 'undefined' && pdfMake.fonts) {
-        if (pdfMake.fonts['Times New Roman']) fontName = 'Times New Roman';
-        else if (pdfMake.fonts['TimesNewRoman']) fontName = 'TimesNewRoman';
-    }
+    var fontName = getPageEffectiveFont();
     return {
         pageSize: pageConfig.paperSize || 'LETTER',
         pageOrientation: pageConfig.paperOrient || 'portrait',
@@ -2243,6 +2732,7 @@ function handleImport(e) {
             selectedIds = [];
             updateAlignToolbar();
             changePaper();
+            registerFonts();
             render();
             renderProps();
         } catch(err) { alert('Invalid JSON file: ' + err.message); }
@@ -2294,6 +2784,7 @@ function applyJSON() {
         selectedIds = [];
         updateAlignToolbar();
         changePaper();
+        registerFonts();
         render();
         renderProps();
         closeJSONModal();
@@ -2319,8 +2810,10 @@ function openFxEditor(elId, propName) {
     var placeholder = '';
     
     if (propName === 'fxExpr') {
-        title = 'Fx Expression Editor (Variable)';
-        desc = 'Enter JavaScript expression to calculate this variable\'s value. The returned result will be rendered on the document. Variables are accessed via the <code>$data</code> object.';
+        title = el.type === 'text' ? 'Fx Expression Editor (Text)' : 'Fx Expression Editor (Variable)';
+        desc = el.type === 'text'
+            ? 'Enter JavaScript expression to calculate this text\'s value. The returned result will be rendered on the document. Variables are accessed via the <code>$data</code> object.'
+            : 'Enter JavaScript expression to calculate this variable\'s value. The returned result will be rendered on the document. Variables are accessed via the <code>$data</code> object.';
         val = el.fxExpr || '';
         placeholder = 'e.g., $data.patient_name.toUpperCase() or $data.patient_age >= 18 ? \'Adult\' : \'Minor\'';
     } else if (propName === 'showFx') {
@@ -2342,6 +2835,16 @@ function openFxEditor(elId, propName) {
     textarea.placeholder = placeholder;
     
     document.getElementById('fxEditorModal').classList.add('show');
+
+    // Trigger highlight update & scroll reset
+    textarea.dispatchEvent(new Event('input'));
+    var highlightOverlay = document.getElementById('fxEditorHighlight');
+    if (highlightOverlay) {
+        highlightOverlay.scrollTop = 0;
+        highlightOverlay.scrollLeft = 0;
+    }
+    textarea.scrollTop = 0;
+    textarea.scrollLeft = 0;
 }
 
 function closeFxEditorModal() {
@@ -2646,6 +3149,17 @@ function parseHtmlToPdfText(str) {
     return result.length === 1 && !result[0].bold && !result[0].italics && !result[0].decoration ? result[0].text : result;
 }
 
+function toggleUseTextFx(id, checked) {
+    var el = elements.find(function(e) { return e.id === id; });
+    if (!el) return;
+    el.isFx = checked;
+    render();
+    renderProps();
+    if (checked && !el.fxExpr) {
+        openFxEditor(id, 'fxExpr');
+    }
+}
+
 function toggleUseVarFx(id, checked) {
     var el = elements.find(function(e) { return e.id === id; });
     if (!el) return;
@@ -2782,6 +3296,63 @@ document.addEventListener('keydown', function(e) {
         closeFxEditorModal();
         return;
     }
+
+    // Undo: Ctrl+Z
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        var activeTag = document.activeElement.tagName.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea') return;
+        e.preventDefault();
+        undo();
+        return;
+    }
+
+    // Copy: Ctrl+C
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        var activeTag = document.activeElement.tagName.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea') return;
+        if (selectedIds.length > 0) {
+            clipboard = elements.filter(function(el) {
+                return selectedIds.indexOf(el.id) !== -1;
+            }).map(function(el) { return JSON.parse(JSON.stringify(el)); });
+            e.preventDefault();
+        }
+        return;
+    }
+
+    // Paste: Ctrl+V
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        var activeTag = document.activeElement.tagName.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea') return;
+        if (clipboard.length > 0) {
+            e.preventDefault();
+            saveUndo();
+            var idMap = {};
+            var newIds = [];
+            clipboard.forEach(function(src) {
+                var newEl = JSON.parse(JSON.stringify(src));
+                var newId = ++idCounter;
+                idMap[src.id] = newId;
+                newEl.id = newId;
+                newEl.x += 15;
+                newEl.y += 15;
+                newIds.push(newId);
+                elements.push(newEl);
+            });
+            // Fix parentId references for pasted panels
+            elements.forEach(function(el) {
+                if (newIds.indexOf(el.id) !== -1 && el.parentId && idMap[el.parentId]) {
+                    el.parentId = idMap[el.parentId];
+                }
+            });
+            selectedIds = newIds;
+            selectedId = newIds[0];
+            updateAlignToolbar();
+            render();
+            renderProps();
+            renderOutline();
+        }
+        return;
+    }
     
     // Check if elements are selected and user is not typing in inputs
     if (selectedIds.length > 0) {
@@ -2792,6 +3363,7 @@ document.addEventListener('keydown', function(e) {
         
         if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
+            saveUndo();
             var idsToRemove = selectedIds.slice();
             var allRemoveIds = {};
             idsToRemove.forEach(function(id) {
@@ -2821,6 +3393,7 @@ document.addEventListener('keydown', function(e) {
         if (selectedElements.length === 0) return;
         
         var moved = false;
+        var undoSavedForArrow = false;
         var step = e.shiftKey ? 10 : 1;
         
         if (e.key === 'ArrowUp') {
@@ -2854,6 +3427,7 @@ document.addEventListener('keydown', function(e) {
         }
         
         if (moved) {
+            if (!undoSavedForArrow) { saveUndo(); undoSavedForArrow = true; }
             e.preventDefault();
             render();
             renderProps();
@@ -2984,7 +3558,7 @@ function updateLivePreview(force) {
             
             // Swap frames using opacity and z-index transitions
             nextFrame.style.opacity = '1';
-            var isDragging = !!document.querySelector('.pane-resizer.active, .resizer.active');
+            var isDragging = !!document.querySelector('.pane-resizer.active, .resizer.active, .outline-resizer.active');
             nextFrame.style.pointerEvents = isDragging ? 'none' : 'auto';
             nextFrame.style.zIndex = '2';
             
@@ -3052,5 +3626,502 @@ function updateLivePreview(force) {
     }
 })();
 
+// Elements Outline Resizer Drag Logic
+(function() {
+    var resizer = document.getElementById('outlineResizer');
+    var outlineSection = document.getElementById('outlineSection');
+    var isResizing = false;
+    var startY, startHeight;
+
+    if (!resizer || !outlineSection) return;
+
+    resizer.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        isResizing = true;
+        resizer.classList.add('active');
+        toggleIframePointerEvents(false);
+        startY = e.clientY;
+        startHeight = outlineSection.offsetHeight;
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    });
+
+    function handleMouseMove(e) {
+        if (!isResizing) return;
+        var deltaY = e.clientY - startY;
+        var newHeight = startHeight - deltaY;
+        var maxHeight = window.innerHeight - 150;
+        newHeight = Math.max(100, Math.min(maxHeight, newHeight));
+        outlineSection.style.height = newHeight + 'px';
+    }
+
+    function handleMouseUp() {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('active');
+            toggleIframePointerEvents(true);
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+    }
+})();
+
+// ============================================================
+// CUSTOM FONTS MANAGEMENT
+// ============================================================
+function registerFonts() {
+    if (!pageConfig.customFonts) {
+        pageConfig.customFonts = [];
+    }
+    
+    if (typeof pdfMake !== 'undefined') {
+        // Reset to standard built-in fonts (keep Roboto)
+        pdfMake.fonts = {
+            Roboto: {
+                normal: 'Roboto-Regular.ttf',
+                bold: 'Roboto-Medium.ttf',
+                italics: 'Roboto-Italic.ttf',
+                bolditalics: 'Roboto-MediumItalic.ttf'
+            }
+        };
+        // Add Times New Roman if vfs has it
+        if (pdfMake.vfs && (pdfMake.vfs['Times-New-Roman.ttf'] || pdfMake.vfs['TimesNewRoman.ttf'])) {
+            pdfMake.fonts['Times New Roman'] = {
+                normal: pdfMake.vfs['Times-New-Roman.ttf'] ? 'Times-New-Roman.ttf' : 'TimesNewRoman.ttf',
+                bold: pdfMake.vfs['Times-New-Roman-Bold.ttf'] ? 'Times-New-Roman-Bold.ttf' : 'TimesNewRoman-Bold.ttf',
+                italics: pdfMake.vfs['Times-New-Roman-Italic.ttf'] ? 'Times-New-Roman-Italic.ttf' : 'TimesNewRoman-Italic.ttf',
+                bolditalics: pdfMake.vfs['Times-New-Roman-BoldItalic.ttf'] ? 'Times-New-Roman-BoldItalic.ttf' : 'TimesNewRoman-BoldItalic.ttf'
+            };
+        }
+        
+        pageConfig.customFonts.forEach(function(font) {
+            var normalFile = font.name + '-Regular.ttf';
+            var boldFile = font.bold ? font.name + '-Bold.ttf' : normalFile;
+            var italicFile = font.italics ? font.name + '-Italic.ttf' : normalFile;
+            var boldItalicFile = font.bolditalics ? font.name + '-BoldItalic.ttf' : (font.bold ? font.name + '-Bold.ttf' : normalFile);
+            
+            if (pdfMake.vfs) {
+                pdfMake.vfs[normalFile] = font.normal;
+                if (font.bold) pdfMake.vfs[boldFile] = font.bold;
+                if (font.italics) pdfMake.vfs[italicFile] = font.italics;
+                if (font.bolditalics) pdfMake.vfs[boldItalicFile] = font.bolditalics;
+            }
+            
+            pdfMake.fonts[font.name] = {
+                normal: normalFile,
+                bold: boldFile,
+                italics: italicFile,
+                bolditalics: boldItalicFile
+            };
+            
+            registerFontFaceInBrowser(font.name, 'normal', font.normal);
+            if (font.bold) registerFontFaceInBrowser(font.name, 'bold', font.bold);
+            if (font.italics) registerFontFaceInBrowser(font.name, 'italic', font.italics);
+            if (font.bolditalics) registerFontFaceInBrowser(font.name, 'bold italic', font.bolditalics);
+        });
+    }
+}
+
+var loadedBrowserFonts = {};
+
+function registerFontFaceInBrowser(name, style, base64) {
+    if (!base64) return;
+    var key = name + '_' + style + '_' + base64.substring(0, 100);
+    if (loadedBrowserFonts[key]) return;
+    loadedBrowserFonts[key] = true;
+    
+    var url = base64.indexOf('data:font/') === 0 ? 'url(' + base64 + ')' : 'url(data:font/ttf;base64,' + base64 + ')';
+    var weight = 'normal';
+    var fontStyle = 'normal';
+    if (style.indexOf('bold') !== -1) weight = 'bold';
+    if (style.indexOf('italic') !== -1) fontStyle = 'italic';
+    
+    try {
+        var fontFace = new FontFace(name, url, { style: fontStyle, weight: weight });
+        fontFace.load().then(function(loadedFace) {
+            document.fonts.add(loadedFace);
+            if (typeof render === 'function') {
+                render();
+            }
+        }).catch(function(err) {
+            console.error('Error loading FontFace: ' + name + ' (' + style + ')', err);
+        });
+    } catch(e) {
+        console.error('FontFace API not supported or error: ', e);
+    }
+}
+
+function getElementEffectiveFont(fontName) {
+    if (!fontName) return undefined;
+    if (fontName === 'Roboto') return 'Roboto';
+    if (typeof pdfMake !== 'undefined' && pdfMake.fonts) {
+        if (pdfMake.fonts[fontName]) return fontName;
+        
+        var normalizedTarget = fontName.toLowerCase().replace(/[\s_-]/g, '');
+        for (var key in pdfMake.fonts) {
+            if (pdfMake.fonts.hasOwnProperty(key)) {
+                var normalizedKey = key.toLowerCase().replace(/[\s_-]/g, '');
+                if (normalizedKey === normalizedTarget) {
+                    return key;
+                }
+            }
+        }
+    }
+    return undefined;
+}
+
+function getPageEffectiveFont() {
+    var fontName = pageConfig.defaultFont || 'Roboto';
+    var effective = getElementEffectiveFont(fontName);
+    return effective || 'Roboto';
+}
+
+var editingFontIdx = null;
+
+function openEditFontModal(idx) {
+    editingFontIdx = idx;
+    var font = pageConfig.customFonts[idx];
+    document.getElementById('addFontModalTitle').textContent = 'Update Custom Font';
+    
+    document.getElementById('fontNameInput').value = font.name;
+    document.getElementById('fontNameInput').disabled = true;
+    
+    document.getElementById('fontRegularInput').value = '';
+    document.getElementById('fontRegularLabel').textContent = font.normal ? 'Đã tải lên (.ttf)' : 'No file selected';
+    
+    document.getElementById('fontBoldInput').value = '';
+    document.getElementById('fontBoldLabel').textContent = font.bold ? 'Đã tải lên (.ttf)' : 'No file selected (Optional - Cần thiết cho thẻ <b>)';
+    
+    document.getElementById('fontItalicInput').value = '';
+    document.getElementById('fontItalicLabel').textContent = font.italics ? 'Đã tải lên (.ttf)' : 'No file selected (Optional)';
+    
+    document.getElementById('fontBoldItalicInput').value = '';
+    document.getElementById('fontBoldItalicLabel').textContent = font.bolditalics ? 'Đã tải lên (.ttf)' : 'No file selected (Optional)';
+    
+    document.getElementById('addFontModal').classList.add('show');
+}
+
+function openAddFontModal() {
+    editingFontIdx = null;
+    document.getElementById('addFontModalTitle').textContent = 'Add Custom Font';
+    
+    document.getElementById('fontNameInput').value = '';
+    document.getElementById('fontNameInput').disabled = false;
+    
+    document.getElementById('fontRegularInput').value = '';
+    document.getElementById('fontRegularLabel').textContent = 'No file selected';
+    document.getElementById('fontBoldInput').value = '';
+    document.getElementById('fontBoldLabel').textContent = 'No file selected (Optional - Cần thiết cho thẻ <b>)';
+    document.getElementById('fontItalicInput').value = '';
+    document.getElementById('fontItalicLabel').textContent = 'No file selected (Optional)';
+    document.getElementById('fontBoldItalicInput').value = '';
+    document.getElementById('fontBoldItalicLabel').textContent = 'No file selected (Optional)';
+    document.getElementById('addFontModal').classList.add('show');
+}
+
+function closeAddFontModal() {
+    document.getElementById('addFontModal').classList.remove('show');
+}
+
+function updateFontLabel(inputId, labelId) {
+    var input = document.getElementById(inputId);
+    var label = document.getElementById(labelId);
+    if (input.files && input.files[0]) {
+        label.textContent = input.files[0].name;
+    } else {
+        label.textContent = 'No file selected';
+    }
+}
+
+function saveCustomFont() {
+    var name = document.getElementById('fontNameInput').value.trim();
+    if (!name) {
+        alert('Please enter font name!');
+        return;
+    }
+    name = name.replace(/[^a-zA-Z0-9_\s-]/g, '');
+    
+    var regInput = document.getElementById('fontRegularInput');
+    var isEdit = editingFontIdx !== null;
+    
+    if (!isEdit && (!regInput.files || !regInput.files[0])) {
+        alert('Please select Regular font file (.ttf)!');
+        return;
+    }
+
+    var promises = [];
+    var fontObj = isEdit ? Object.assign({}, pageConfig.customFonts[editingFontIdx]) : { name: name };
+
+    function readFileAsBase64(file, prop) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var base64Part = e.target.result.split(',')[1];
+                fontObj[prop] = base64Part;
+                resolve();
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    if (regInput.files && regInput.files[0]) {
+        promises.push(readFileAsBase64(regInput.files[0], 'normal'));
+    }
+
+    var boldInput = document.getElementById('fontBoldInput');
+    if (boldInput.files && boldInput.files[0]) {
+        promises.push(readFileAsBase64(boldInput.files[0], 'bold'));
+    }
+    
+    var italicInput = document.getElementById('fontItalicInput');
+    if (italicInput.files && italicInput.files[0]) {
+        promises.push(readFileAsBase64(italicInput.files[0], 'italics'));
+    }
+
+    var biInput = document.getElementById('fontBoldItalicInput');
+    if (biInput.files && biInput.files[0]) {
+        promises.push(readFileAsBase64(biInput.files[0], 'bolditalics'));
+    }
+
+    Promise.all(promises).then(function() {
+        if (!pageConfig.customFonts) pageConfig.customFonts = [];
+        if (isEdit) {
+            pageConfig.customFonts[editingFontIdx] = fontObj;
+        } else {
+            pageConfig.customFonts = pageConfig.customFonts.filter(function(f) { return f.name !== name; });
+            pageConfig.customFonts.push(fontObj);
+        }
+        
+        registerFonts();
+        closeAddFontModal();
+        render();
+        renderProps();
+        alert('Custom font "' + name + '" saved successfully!');
+    }).catch(function(err) {
+        console.error(err);
+        alert('Error loading font file!');
+    });
+}
+
+function deleteCustomFont(idx) {
+    if (confirm('Are you sure you want to delete this custom font?')) {
+        if (pageConfig.customFonts && pageConfig.customFonts[idx]) {
+            var name = pageConfig.customFonts[idx].name;
+            pageConfig.customFonts.splice(idx, 1);
+            
+            elements.forEach(function(el) {
+                if (el.font === name) {
+                    el.font = undefined;
+                }
+            });
+            if (pageConfig.defaultFont === name) {
+                pageConfig.defaultFont = 'Roboto';
+            }
+            
+            registerFonts();
+            render();
+            renderProps();
+        }
+    }
+}
+
 // Init
+registerFonts();
 render();
+
+// Autocomplete & Syntax Highlighting logic for Fx Editor
+(function() {
+    var textarea = null;
+    var container = null;
+    var highlightOverlay = null;
+    var activeIndex = -1;
+    var currentKeys = [];
+    var lastMatch = null;
+
+    function initAutocomplete() {
+        textarea = document.getElementById('fxEditorModalInput');
+        container = document.getElementById('fxSuggestions');
+        highlightOverlay = document.getElementById('fxEditorHighlight');
+        if (!textarea || !container || !highlightOverlay) return;
+
+        textarea.addEventListener('input', handleInput);
+        textarea.addEventListener('input', handleHighlight);
+        textarea.addEventListener('scroll', handleScroll);
+        textarea.addEventListener('keydown', handleKeyDown);
+        
+        // Hide overlay if user clicks outside
+        document.addEventListener('click', function(e) {
+            if (!container.contains(e.target) && e.target !== textarea) {
+                hideSuggestions();
+            }
+        });
+    }
+
+    function handleHighlight() {
+        highlightOverlay.innerHTML = highlightSyntax(textarea.value) + "\n";
+    }
+
+    function handleScroll() {
+        highlightOverlay.scrollTop = textarea.scrollTop;
+        highlightOverlay.scrollLeft = textarea.scrollLeft;
+    }
+
+    function highlightSyntax(code) {
+        var regex = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(["'`](?:\\.|[^\\])*?["'`])|(\$data\.[a-zA-Z0-9_]+)|(\b(?:if|else|for|switch|case|default|while|do|return|var|let|const|function|true|false|null|undefined|new|throw|try|catch|finally|typeof|instanceof|in|of)\b)|(\b\d+\b)/g;
+
+        return code
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(regex, function(match, comment, string, dataVar, keyword, number) {
+                if (comment) {
+                    return '<span class="hl-comment">' + comment + '</span>';
+                }
+                if (string) {
+                    return '<span class="hl-string">' + string + '</span>';
+                }
+                if (dataVar) {
+                    return '<span class="hl-var">' + dataVar + '</span>';
+                }
+                if (keyword) {
+                    return '<span class="hl-keyword">' + keyword + '</span>';
+                }
+                if (number) {
+                    return '<span class="hl-number">' + number + '</span>';
+                }
+                return match;
+            });
+    }
+
+    function handleInput() {
+        var cursor = textarea.selectionStart;
+        var valBeforeCursor = textarea.value.substring(0, cursor);
+        var match = valBeforeCursor.match(/\$data\.([a-zA-Z0-9_]*)$/);
+        
+        if (match) {
+            lastMatch = match;
+            var typed = match[1];
+            
+            // Get available variables keys
+            var allKeys = Object.keys(variables);
+            currentKeys = allKeys.filter(function(k) {
+                return k.toLowerCase().indexOf(typed.toLowerCase()) !== -1;
+            });
+            
+            if (currentKeys.length > 0) {
+                renderSuggestions();
+                showSuggestions();
+            } else {
+                hideSuggestions();
+            }
+        } else {
+            hideSuggestions();
+        }
+    }
+
+    function renderSuggestions() {
+        container.innerHTML = '';
+        activeIndex = Math.min(activeIndex, currentKeys.length - 1);
+        if (activeIndex < 0 && currentKeys.length > 0) {
+            activeIndex = 0;
+        }
+        
+        currentKeys.forEach(function(key, idx) {
+            var item = document.createElement('div');
+            item.className = 'fx-suggestion-item' + (idx === activeIndex ? ' active' : '');
+            
+            // Variable label
+            var keySpan = document.createElement('span');
+            keySpan.textContent = key;
+            item.appendChild(keySpan);
+            
+            // Variable type badge
+            var typeSpan = document.createElement('span');
+            typeSpan.className = 'var-type';
+            var val = variables[key];
+            if (Array.isArray(val)) {
+                typeSpan.textContent = 'Array';
+            } else if (typeof val === 'string' && (val.startsWith('data:image/') || val.startsWith('http://') || val.startsWith('https://'))) {
+                typeSpan.textContent = 'Image';
+            } else {
+                typeSpan.textContent = typeof val;
+            }
+            item.appendChild(typeSpan);
+            
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectSuggestion(key);
+            });
+            
+            container.appendChild(item);
+        });
+    }
+
+    function selectSuggestion(key) {
+        if (!lastMatch) return;
+        var cursor = textarea.selectionStart;
+        var matchLen = lastMatch[0].length;
+        var startIdx = cursor - matchLen;
+        
+        var replacement = '$data.' + key;
+        var before = textarea.value.substring(0, startIdx);
+        var after = textarea.value.substring(cursor);
+        
+        textarea.value = before + replacement + after;
+        
+        // Put cursor at end of replacement
+        var newCursorPos = startIdx + replacement.length;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        textarea.focus();
+        
+        handleHighlight();
+        hideSuggestions();
+    }
+
+    function handleKeyDown(e) {
+        if (container.style.display === 'none') return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = (activeIndex + 1) % currentKeys.length;
+            renderSuggestions();
+            scrollIntoView();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = (activeIndex - 1 + currentKeys.length) % currentKeys.length;
+            renderSuggestions();
+            scrollIntoView();
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0 && activeIndex < currentKeys.length) {
+                e.preventDefault();
+                selectSuggestion(currentKeys[activeIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            hideSuggestions();
+        }
+    }
+
+    function scrollIntoView() {
+        var activeEl = container.querySelector('.fx-suggestion-item.active');
+        if (activeEl) {
+            activeEl.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function showSuggestions() {
+        container.style.display = 'block';
+    }
+
+    function hideSuggestions() {
+        container.style.display = 'none';
+        activeIndex = -1;
+        currentKeys = [];
+        lastMatch = null;
+    }
+
+    // Call init
+    initAutocomplete();
+})();

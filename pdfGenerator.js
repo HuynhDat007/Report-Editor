@@ -126,8 +126,9 @@ function getElementWidth(el, pageConfig) {
         }
         return getParsedWidth(el.width, pageConfig) || 500;
     }
-    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'columns' || el.type === 'image' || el.type === 'panel') {
-        return getParsedWidth(el.width, pageConfig) || 100;
+    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel') {
+        var w = getParsedWidth(el.width, pageConfig) || 100;
+        return (el.type === 'text' || el.type === 'var') ? Math.max(20, w) : w;
     }
     if (el.type === 'line') {
         return getParsedWidth(el.lineWidth, pageConfig) || 100;
@@ -138,14 +139,18 @@ function getElementWidth(el, pageConfig) {
     return 100;
 }
 
-function getElementHeight(el, variables) {
+function getElementHeight(el, variables, pageConfig) {
     if (el.type === 'shape') {
         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
         return rSize.h;
     }
+    if (el.type === 'image' && el.rotate) {
+        var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
+        return rSize.h;
+    }
     if (el.type === 'rect') return el.rectH || 20;
     if (el.type === 'line') return el.lineWeight || 1;
-    if (el.type === 'text' || el.type === 'var') return el.fontSize || 13;
+    if (el.type === 'text' || el.type === 'var') return Math.ceil((el.fontSize || 13) * 1.15);
     if (el.type === 'table') {
         var displayData = el.data || [];
         if (el.dataVar && variables && Array.isArray(variables[el.dataVar])) {
@@ -159,9 +164,72 @@ function getElementHeight(el, variables) {
     return 20;
 }
 
+function getElementEffectiveFont(fontName) {
+    if (!fontName) return undefined;
+    if (fontName === 'Roboto') return 'Roboto';
+    if (typeof pdfMake !== 'undefined' && pdfMake.fonts) {
+        if (pdfMake.fonts[fontName]) return fontName;
+        
+        var normalizedTarget = fontName.toLowerCase().replace(/[\s_-]/g, '');
+        for (var key in pdfMake.fonts) {
+            if (pdfMake.fonts.hasOwnProperty(key)) {
+                var normalizedKey = key.toLowerCase().replace(/[\s_-]/g, '');
+                if (normalizedKey === normalizedTarget) {
+                    return key;
+                }
+            }
+        }
+    }
+    return undefined;
+}
+
+// Convert HTML tags (b, i, u) in text to pdfmake rich text array
+function parseHtmlToPdfText(str) {
+    str = String(str);
+    if (str.indexOf('<') === -1) return str; // no tags, return plain string
+    var result = [];
+    var regex = /<(\/?)([biu])>/gi;
+    var lastIdx = 0;
+    var bold = false, italic = false, underline = false;
+    var match;
+    while ((match = regex.exec(str)) !== null) {
+        if (match.index > lastIdx) {
+            var seg = str.substring(lastIdx, match.index);
+            if (seg) {
+                var obj = { text: seg };
+                if (bold) obj.bold = true;
+                if (italic) obj.italics = true;
+                if (underline) obj.decoration = 'underline';
+                result.push(obj);
+            }
+        }
+        var isClose = match[1] === '/';
+        var tag = match[2].toLowerCase();
+        if (tag === 'b') bold = !isClose;
+        else if (tag === 'i') italic = !isClose;
+        else if (tag === 'u') underline = !isClose;
+        lastIdx = regex.lastIndex;
+    }
+    if (lastIdx < str.length) {
+        var remaining = str.substring(lastIdx);
+        if (remaining) {
+            var obj = { text: remaining };
+            if (bold) obj.bold = true;
+            if (italic) obj.italics = true;
+            if (underline) obj.decoration = 'underline';
+            result.push(obj);
+        }
+    }
+    return result.length === 1 && !result[0].bold && !result[0].italics && !result[0].decoration ? result[0].text : result;
+}
+
 function elementToNode(el, imagesDict, variables, elements, pageConfig) {
     switch(el.type) {
         case 'text':
+            var displayText = el.text;
+            if (el.isFx) {
+                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+            }
             var textColor = el.color;
             if (el.isColorFx && el.colorFx) {
                 var evaluatedColor = evaluateFx(el.colorFx, variables);
@@ -169,7 +237,7 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: el.text, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
+            return { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
         case 'var':
             var displayVal = '';
             if (el.isFx) {
@@ -185,7 +253,7 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: val, fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined };
+            return { text: parseHtmlToPdfText(val), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
         case 'line':
             return { canvas: [{ type:'line', x1:0, y1:0, x2:el.lineWidth, y2:0, lineWidth:el.lineWeight, lineColor:el.color }] };
         case 'rect':
@@ -259,6 +327,12 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                 });
             }
 
+            var cellBorder = el.showBorder ? [
+                el.borderLeft !== false,
+                el.borderTop !== false,
+                el.borderRight !== false,
+                el.borderBottom !== false
+            ] : undefined;
             var body = [];
             var showH = el.showHeader !== false;
             if (showH) {
@@ -268,7 +342,8 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                         text: h,
                         bold: el.headerBold !== false,
                         alignment: pdfHAligns[i] || pdfHAligns[0] || 'center',
-                        fillColor: cellBg || undefined
+                        fillColor: cellBg || undefined,
+                        border: cellBorder
                     };
                 }));
             }
@@ -278,11 +353,12 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     var rowBg = isEvenRow ? evenFill : oddFill;
                     var cellBg = colFills[i] || rowBg || '';
                     return {
-                        text: c,
+                        text: parseHtmlToPdfText(c),
                         alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
                         bold: el.bold || false,
                         italics: el.italic || false,
-                        fillColor: cellBg || undefined
+                        fillColor: cellBg || undefined,
+                        border: cellBorder
                     };
                 }));
             });
@@ -292,22 +368,26 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                 hLineColor: function() { return el.borderColor||'#000'; },
                 vLineColor: function() { return el.borderColor||'#000'; }
             } : 'noBorders';
-            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000' };
-        case 'columns':
-            return { 
-                columns: [
-                    { text: el.left, alignment: el.leftAlign || 'left' },
-                    { text: el.right, alignment: el.rightAlign || 'left' }
-                ], 
-                fontSize: el.fontSize, 
-                columnGap: 10 
-            };
+            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {
                 var src = el.imageSrc;
                 if (el.dataVar && variables[el.dataVar]) {
                     src = variables[el.dataVar];
                 }
+                var imgW = getParsedWidth(el.width, pageConfig);
+                var imgH = el.height || 100;
+                var angle = el.rotate || 0;
+
+                if (angle !== 0) {
+                    var rSize = getRotatedSize(imgW, imgH, angle);
+                    var svgStr = '<svg width="'+rSize.w+'" height="'+rSize.h+'" viewBox="0 0 '+rSize.w+' '+rSize.h+'" xmlns="http://www.w3.org/2000/svg">';
+                    svgStr += '<g transform="translate('+(rSize.w/2)+' '+(rSize.h/2)+') rotate('+angle+') translate('+(-imgW/2)+' '+(-imgH/2)+')">';
+                    svgStr += '<image href="'+src+'" xlink:href="'+src+'" width="'+imgW+'" height="'+imgH+'" />';
+                    svgStr += '</g></svg>';
+                    return { svg: svgStr, width: rSize.w, height: rSize.h };
+                }
+
                 if (src.startsWith('data:image/svg+xml')) {
                     var base64Idx = src.indexOf(';base64,');
                     if (base64Idx !== -1) {
@@ -334,7 +414,39 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             return { text: '[No image]', fontSize: 11, italics: true };
         case 'panel':
             var children = elements.filter(function(e) { return e.parentId === el.id; });
-            var childrenLayout = buildLayout(children, 0, 0, imagesDict, null, variables, elements, pageConfig);
+            var childrenLayout = [];
+            children.forEach(function(child) {
+                if (!isElementVisible(child, variables)) return;
+                var node = elementToNode(child, imagesDict, variables, elements, pageConfig);
+                if (node) {
+                    var x = child.x || 0;
+                    var y = child.y || 0;
+                    var w = getElementWidth(child, pageConfig);
+                    
+                    if (child.type === 'shape') {
+                        var rSize = getRotatedSize(child.width || 100, child.height || 50, child.rotate || 0);
+                        x = x - rSize.dx;
+                        y = y - rSize.dy;
+                        w = rSize.w;
+                    } else if (child.type === 'image' && child.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(child.width, pageConfig) || 100, child.height || 100, child.rotate || 0);
+                        x = x - rSize.dx;
+                        y = y - rSize.dy;
+                        w = rSize.w;
+                    }
+                    
+                    var wrappedNode = {
+                        columns: [
+                            {
+                                width: w,
+                                stack: [ node ]
+                            }
+                        ],
+                        relativePosition: { x: x, y: y }
+                    };
+                    childrenLayout.push(wrappedNode);
+                }
+            });
             return {
                 stack: [
                     {
@@ -366,7 +478,32 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         var w2 = getElementWidth(el2, pageConfig);
         var x1 = el1.x;
         var x2 = el2.x;
-        return Math.max(x1, x2) < Math.min(x1 + w1, x2 + w2);
+        var intersection = Math.min(x1 + w1, x2 + w2) - Math.max(x1, x2);
+        if (intersection <= 0) return false;
+        var minW = Math.min(w1, w2);
+        if (isNaN(minW) || minW <= 0) return false;
+        return (intersection / minW) > 0.5;
+    }
+    function verticalOverlap(el1, el2) {
+        var h1 = getElementHeight(el1, variables, pageConfig);
+        var h2 = getElementHeight(el2, variables, pageConfig);
+        var y1 = el1.y;
+        var y2 = el2.y;
+        var intersection = Math.min(y1 + h1, y2 + h2) - Math.max(y1, y2);
+        return intersection > 0;
+    }
+    function isOverlayingShape(el) {
+        if (el.type === 'shape' || el.type === 'rect' || el.type === 'line') return false;
+        for (var i = 0; i < layoutElements.length; i++) {
+            var other = layoutElements[i];
+            if (other.id === el.id) continue;
+            if (other.type === 'shape' || other.type === 'rect' || other.type === 'line') {
+                if (horizontalOverlap(el, other) && verticalOverlap(el, other)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     var content = [];
     var layoutElements = elementsList.filter(function(e) {
@@ -375,26 +512,35 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
     if (layoutElements.length === 0) return content;
 
     var activePBs = pageBreakYs ? pageBreakYs.slice() : [];
+    
+    // Group elements into rows based on Y coordinate
     var rows = [];
     var sorted = layoutElements.slice().sort(function(a,b) { return a.y - b.y; });
     
     sorted.forEach(function(el) {
         var placed = false;
-        for (var i = 0; i < rows.length; i++) {
-            var row = rows[i];
-            var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
-            if (Math.abs(el.y - avgY) < 10) {
-                var overlaps = false;
-                for (var j = 0; j < row.length; j++) {
-                    if (horizontalOverlap(el, row[j])) {
-                        overlaps = true;
+        var isShapeOrOverlay = el.type === 'shape' || el.type === 'rect' || el.type === 'line' || isOverlayingShape(el);
+        if (!isShapeOrOverlay) {
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var hasShapeOrOverlay = row.some(function(rEl) {
+                    return rEl.type === 'shape' || rEl.type === 'rect' || rEl.type === 'line' || isOverlayingShape(rEl);
+                });
+                if (hasShapeOrOverlay) continue;
+                var avgY = row.reduce(function(sum, e){ return sum + e.y; }, 0) / row.length;
+                if (Math.abs(el.y - avgY) < 10) {
+                    var overlaps = false;
+                    for (var j = 0; j < row.length; j++) {
+                        if (horizontalOverlap(el, row[j])) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    if (!overlaps) {
+                        row.push(el);
+                        placed = true;
                         break;
                     }
-                }
-                if (!overlaps) {
-                    row.push(el);
-                    placed = true;
-                    break;
                 }
             }
         }
@@ -410,6 +556,7 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
     });
 
     var prevRowBottom = baseMarginTop;
+    var renderedElements = []; // Store { el, absoluteRenderedBottom }
 
     rows.forEach(function(row) {
         row.sort(function(a, b) { return a.x - b.x; });
@@ -423,11 +570,29 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
 
         var currentRowTop = Math.min.apply(null, row.map(function(e){ return e.y; }));
         
+        // Calculate the minimum Y position for this row to avoid horizontal overlaps
+        var minRowY = baseMarginTop;
+        row.forEach(function(el) {
+            renderedElements.forEach(function(prev) {
+                if (horizontalOverlap(el, prev.el)) {
+                    // Skip overlap restriction if either is a shape, rect, line, or overlay
+                    if (el.type === 'shape' || el.type === 'rect' || el.type === 'line' || isOverlayingShape(el) ||
+                        prev.el.type === 'shape' || prev.el.type === 'rect' || prev.el.type === 'line' || isOverlayingShape(prev.el)) {
+                        return;
+                    }
+                    var elOffsetY = el.y - currentRowTop;
+                    minRowY = Math.max(minRowY, prev.absoluteRenderedBottom - elOffsetY);
+                }
+            });
+        });
+
+        var targetRowTop = Math.max(currentRowTop, minRowY);
+
         var crossedPB = null;
         if (activePBs.length > 0) {
             for (var i = 0; i < activePBs.length; i++) {
                 var pbY = activePBs[i];
-                if (prevRowBottom <= pbY && pbY <= currentRowTop) {
+                if (prevRowBottom <= pbY && pbY <= targetRowTop) {
                     crossedPB = pbY;
                     activePBs.splice(0, i + 1);
                     break;
@@ -437,16 +602,35 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
 
         var gapY;
         if (crossedPB !== null) {
-            gapY = currentRowTop - crossedPB;
+            gapY = targetRowTop - crossedPB;
             prevRowBottom = crossedPB;
         } else {
-            gapY = currentRowTop - prevRowBottom;
+            gapY = targetRowTop - prevRowBottom;
         }
-        if (gapY < 0) gapY = 0;
+        if (gapY < 0) {
+            if (crossedPB !== null) {
+                gapY = 0;
+            }
+        }
 
-        var currentRowBottom = Math.max.apply(null, row.map(function(e){
-            return e.y + getElementHeight(e, variables);
-        }));
+        var absoluteRowTop = prevRowBottom + gapY;
+
+        var currentRowBottom = absoluteRowTop;
+        var isRelativeRow = row.some(function(e) {
+            return e.type === 'shape' || e.type === 'rect' || e.type === 'line' || isOverlayingShape(e);
+        });
+
+        row.forEach(function(el) {
+            var elHeight = getElementHeight(el, variables, pageConfig);
+            var elOffsetY = el.y - currentRowTop;
+            var elBottom = absoluteRowTop + elOffsetY + elHeight;
+            renderedElements.push({ el: el, absoluteRenderedBottom: elBottom });
+            if (!isRelativeRow) {
+                if (elBottom > currentRowBottom) {
+                    currentRowBottom = elBottom;
+                }
+            }
+        });
 
         var rowNode = null;
         if (row.length === 1) {
@@ -457,15 +641,24 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     leftMargin = el.x - rSize.dx - baseMarginLeft;
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
+                    leftMargin = el.x - rSize.dx - baseMarginLeft;
                 }
                 var elW = getElementWidth(el, pageConfig);
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                     elW = rSize.w;
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
+                    elW = rSize.w;
                 }
                 var maxAllowedW = pageWidth - rightMargin - el.x;
                 if (el.type === 'shape') {
                     var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                    maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                } else if (el.type === 'image' && el.rotate) {
+                    var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
                     maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
                 }
                 var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
@@ -477,18 +670,26 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                 if (widthVal && widthVal.toString().indexOf('%') !== -1) {
                     colNode.width = widthVal.toString().trim();
                 }
-                rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
+                if (isRelativeRow) {
+                    rowNode = { columns: [ colNode ], relativePosition: { x: leftMargin, y: gapY } };
+                } else {
+                    rowNode = { columns: [ colNode ], margin: [leftMargin, gapY, 0, 0] };
+                }
             }
         } else {
             var columns = [];
             var firstEl = row[0];
             var colMarginLeft = firstEl.x - baseMarginLeft;
+            var firstRSize = null;
             if (firstEl.type === 'shape') {
-                var rSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
-                colMarginLeft = firstEl.x - rSize.dx - baseMarginLeft;
+                firstRSize = getRotatedSize(firstEl.width || 100, firstEl.height || 50, firstEl.rotate || 0);
+                colMarginLeft = firstEl.x - firstRSize.dx - baseMarginLeft;
+            } else if (firstEl.type === 'image' && firstEl.rotate) {
+                firstRSize = getRotatedSize(getParsedWidth(firstEl.width, pageConfig) || 100, firstEl.height || 100, firstEl.rotate || 0);
+                colMarginLeft = firstEl.x - firstRSize.dx - baseMarginLeft;
             }
 
-            var prevEnd = (firstEl.type === 'shape' ? (firstEl.x - rSize.dx) : firstEl.x);
+            var prevEnd = (firstRSize ? (firstEl.x - firstRSize.dx) : firstEl.x);
 
             row.forEach(function(el, idx) {
                 var node = elementToNode(el, imagesDict, variables, elements, pageConfig);
@@ -497,11 +698,17 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
                         elW = rSize.w;
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
+                        elW = rSize.w;
                     }
                     
                     var maxAllowedW = pageWidth - rightMargin - el.x;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
                         maxAllowedW = pageWidth - rightMargin - (el.x - rSize.dx);
                     }
                     var clampedW = Math.max(10, Math.min(elW, maxAllowedW));
@@ -509,6 +716,9 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     var currentStart = el.x;
                     if (el.type === 'shape') {
                         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
+                        currentStart = el.x - rSize.dx;
+                    } else if (el.type === 'image' && el.rotate) {
+                        var rSize = getRotatedSize(getParsedWidth(el.width, pageConfig) || 100, el.height || 100, el.rotate || 0);
                         currentStart = el.x - rSize.dx;
                     }
                     var gap = currentStart - prevEnd;
@@ -547,7 +757,9 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
             content.push(rowNode);
         }
 
-        prevRowBottom = currentRowBottom;
+        if (!isRelativeRow) {
+            prevRowBottom = currentRowBottom;
+        }
     });
 
     return content;
@@ -579,8 +791,55 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
     
     var content = buildLayout(topLevelElements, pageConfig.marginLeft, pageConfig.marginTop, imagesDict, pageBreakYs, combinedVariables, elements, pageConfig);
     
+    // Register custom fonts into pdfMake vfs and fonts if present
+    if (typeof pdfMake !== 'undefined') {
+        if (!pdfMake.fonts) {
+            pdfMake.fonts = {
+                Roboto: {
+                    normal: 'Roboto-Regular.ttf',
+                    bold: 'Roboto-Medium.ttf',
+                    italics: 'Roboto-Italic.ttf',
+                    bolditalics: 'Roboto-MediumItalic.ttf'
+                }
+            };
+        }
+        if (pdfMake.vfs && (pdfMake.vfs['Times-New-Roman.ttf'] || pdfMake.vfs['TimesNewRoman.ttf'])) {
+            pdfMake.fonts['Times New Roman'] = {
+                normal: pdfMake.vfs['Times-New-Roman.ttf'] ? 'Times-New-Roman.ttf' : 'TimesNewRoman.ttf',
+                bold: pdfMake.vfs['Times-New-Roman-Bold.ttf'] ? 'Times-New-Roman-Bold.ttf' : 'TimesNewRoman-Bold.ttf',
+                italics: pdfMake.vfs['Times-New-Roman-Italic.ttf'] ? 'Times-New-Roman-Italic.ttf' : 'TimesNewRoman-Italic.ttf',
+                bolditalics: pdfMake.vfs['Times-New-Roman-BoldItalic.ttf'] ? 'Times-New-Roman-BoldItalic.ttf' : 'TimesNewRoman-BoldItalic.ttf'
+            };
+        }
+
+        if (pageConfig.customFonts && Array.isArray(pageConfig.customFonts)) {
+            pageConfig.customFonts.forEach(function(font) {
+                var normalFile = font.name + '-Regular.ttf';
+                var boldFile = font.bold ? font.name + '-Bold.ttf' : normalFile;
+                var italicFile = font.italics ? font.name + '-Italic.ttf' : normalFile;
+                var boldItalicFile = font.bolditalics ? font.name + '-BoldItalic.ttf' : (font.bold ? font.name + '-Bold.ttf' : normalFile);
+                
+                if (pdfMake.vfs) {
+                    pdfMake.vfs[normalFile] = font.normal;
+                    if (font.bold) pdfMake.vfs[boldFile] = font.bold;
+                    if (font.italics) pdfMake.vfs[italicFile] = font.italics;
+                    if (font.bolditalics) pdfMake.vfs[boldItalicFile] = font.bolditalics;
+                }
+                
+                pdfMake.fonts[font.name] = {
+                    normal: normalFile,
+                    bold: boldFile,
+                    italics: italicFile,
+                    bolditalics: boldItalicFile
+                };
+            });
+        }
+    }
+
     var fontName = 'Roboto';
-    if (pageConfig.defaultFont === 'Times New Roman' && typeof pdfMake !== 'undefined' && pdfMake.fonts) {
+    if (pageConfig.defaultFont && typeof pdfMake !== 'undefined' && pdfMake.fonts && pdfMake.fonts[pageConfig.defaultFont]) {
+        fontName = pageConfig.defaultFont;
+    } else if (pageConfig.defaultFont === 'Times New Roman' && typeof pdfMake !== 'undefined' && pdfMake.fonts) {
         if (pdfMake.fonts['Times New Roman']) fontName = 'Times New Roman';
         else if (pdfMake.fonts['TimesNewRoman']) fontName = 'TimesNewRoman';
     }
