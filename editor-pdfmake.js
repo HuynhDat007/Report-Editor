@@ -45,7 +45,7 @@ var pageConfig = {
     marginTop: 20,
     marginRight: 20,
     marginBottom: 20,
-    defaultFont: 'Roboto',
+    defaultFont: 'Times New Roman',
     paperSize: 'LETTER',
     paperOrient: 'portrait'
 };
@@ -203,7 +203,7 @@ function addElement(type) {
             Object.assign(el, { type:'shape', shapeType:'rect', width:100, height:50, lineWidth:1, color:'#000000', fillColor:'', radius:0, points:'0,50 50,0 100,50', close:true });
             break;
         case 'table':
-            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'' });
+            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'', colColors:'', headerBolds:'' });
             break;
         case 'var':
             var key = Object.keys(variables)[0] || 'patient_name';
@@ -431,7 +431,6 @@ function render() {
                 } else {
                     bdrStyle = 'border:none';
                 }
-                var hBold = el.headerBold ? 'font-weight:bold;' : '';
                 var hAligns = (el.headerAligns||'center').split(',').map(function(a){return a.trim();});
                 var bAligns = (el.bodyAligns||'left').split(',').map(function(a){return a.trim();});
                 var bBold = el.bold ? 'font-weight:bold;' : '';
@@ -458,6 +457,18 @@ function render() {
                 }
                 
                 var colFills = (el.colFills || '').split(',').map(function(f){return f.trim();});
+                var colColors = (el.colColors || '').split(',').map(function(c){return c.trim();});
+                
+                var headerBolds = [];
+                if (el.headerBolds) {
+                    headerBolds = el.headerBolds.split(',').map(function(b){return b.trim() === 'true';});
+                } else {
+                    var hB = el.headerBold !== false;
+                    for (var i = 0; i < el.headers.length; i++) {
+                        headerBolds.push(hB);
+                    }
+                }
+                
                 var oddFill = el.oddRowFill || '';
                 var evenFill = el.evenRowFill || '';
 
@@ -483,7 +494,11 @@ function render() {
                     el.headers.forEach(function(h,i) {
                         var cellBg = colFills[i] || '';
                         var bgStyle = cellBg ? 'background-color:' + cellBg + ';' : '';
-                        tbl += '<th style="'+bdrStyle+';padding:2px 4px;'+hBold+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+'">' +h+'</th>';
+                        var hBoldVal = headerBolds[i] !== undefined ? headerBolds[i] : (el.headerBold !== false);
+                        var hBoldStyle = hBoldVal ? 'font-weight:bold;' : 'font-weight:normal;';
+                        var cellColor = colColors[i] || el.color || '#000000';
+                        var colorStyle = 'color:' + cellColor + ';';
+                        tbl += '<th style="'+bdrStyle+';padding:2px 4px;'+hBoldStyle+'text-align:'+(hAligns[i]||hAligns[0]||'center')+';'+bgStyle+colorStyle+'">' +h+'</th>';
                     });
                     tbl += '</tr>';
                 }
@@ -494,8 +509,10 @@ function render() {
                         var rowBg = isEvenRow ? evenFill : oddFill;
                         var cellBg = colFills[i] || rowBg || '';
                         var bgStyle = cellBg ? 'background-color:' + cellBg + ';' : '';
+                        var cellColor = colColors[i] || el.color || '#000000';
+                        var colorStyle = 'color:' + cellColor + ';';
                         var cellVal = (c === undefined || c === null) ? '' : String(c).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-                        tbl += '<td style="'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+'">'+cellVal+'</td>';
+                        tbl += '<td style="'+bdrStyle+';padding:2px 4px;text-align:'+(bAligns[i]||bAligns[0]||'left')+';'+bBold+bItalic+bgStyle+colorStyle+'">'+cellVal+'</td>';
                     });
                     tbl += '</tr>';
                 });
@@ -1541,7 +1558,7 @@ function renderProps() {
         });
         h += '</select></div>';
         var colSummary = getColumnsSummary(el);
-        h += '<div class="prop-row"><label>Columns</label><button onclick="openColumnsEditor('+el.id+')" style="width:auto; flex:1; margin:0; padding:4px 8px; background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; cursor:pointer; font-size:11px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="Click to edit columns &amp; mappings">'+colSummary+'</button></div>';
+        h += '<div class="prop-row"><label>Columns</label><button onclick="openColumnsEditor('+el.id+')" style="width:auto; flex:1; margin:0; padding:4px 8px; background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; cursor:pointer; font-size:11px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="Click to edit columns &amp; styles">'+colSummary+'</button></div>';
         h += '<div class="prop-row"><label>Font family</label><select onchange="setProp(\'font\',this.value)">';
         h += '<option '+(el.font==='' || !el.font?'selected':'')+' value="">-- Inherit default --</option>';
         h += '<option '+(el.font==='Roboto'?'selected':'')+' value="Roboto">Roboto</option>';
@@ -1557,15 +1574,10 @@ function renderProps() {
             h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
         }
         h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
-        h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
-        h += '<div class="prop-row"><label>Widths</label><input value="'+el.widths+'" onchange="setProp(\'widths\',this.value)" placeholder="*,*,* or 30,*,80"></div>';
-        h += '<div class="prop-row"><label>Header bold</label><input type="checkbox" '+(el.headerBold?'checked':'')+' onchange="setProp(\'headerBold\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Header aligns</label><input value="'+(el.headerAligns||'center')+'" onchange="setProp(\'headerAligns\',this.value)" placeholder="center,left,right" title="Comma-separated header alignments"></div>';
-        h += '<div class="prop-row"><label>Body aligns</label><input value="'+(el.bodyAligns||'left')+'" onchange="setProp(\'bodyAligns\',this.value)" placeholder="left,center,right" title="Comma-separated body alignments"></div>';
-        h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
-        h += '<div class="prop-row"><label>Text color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
-        h += '<div class="prop-row"><label>Col backgrounds</label><input value="'+(el.colFills||'')+'" onchange="setProp(\'colFills\',this.value)" placeholder="e.g. #eee,,#fff" title="Comma-separated column background colors"></div>';
+        h += '<div class="prop-row"><label>Table Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Body Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
+        h += '<div class="prop-row"><label>Body Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
+        h += '<div class="prop-row"><label>Default Color</label><input type="color" value="'+((el.color && el.color.startsWith('#')) ? el.color : '#000000')+'" onchange="setProp(\'color\',this.value)"></div>';
         h += '<div class="prop-row"><label>Odd row bg</label><input type="color" value="'+((el.oddRowFill && el.oddRowFill.startsWith('#')) ? el.oddRowFill : '#ffffff')+'" onchange="setProp(\'oddRowFill\',this.value)">';
         h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'oddRowFill\',\'\')">Clear</button></div>';
         h += '<div class="prop-row"><label>Even row bg</label><input type="color" value="'+((el.evenRowFill && el.evenRowFill.startsWith('#')) ? el.evenRowFill : '#ffffff')+'" onchange="setProp(\'evenRowFill\',this.value)">';
@@ -2697,6 +2709,7 @@ function previewPDF() {
 }
 function closePreview() { document.getElementById('previewModal').classList.remove('show'); }
 function downloadPDF() { pdfMake.createPdf(buildDoc()).download('report.pdf'); }
+function printPDF() { pdfMake.createPdf(buildDoc()).print(); }
 
 function exportJSON() {
     var data = { elements: elements, variables: variables, paper: pageConfig.paperSize, orient: pageConfig.paperOrient, pageConfig: pageConfig };
@@ -2723,7 +2736,7 @@ function handleImport(e) {
                 marginTop: 20,
                 marginRight: 20,
                 marginBottom: 20,
-                defaultFont: 'Roboto'
+                defaultFont: 'Times New Roman'
             };
             if (data.paper) pageConfig.paperSize = data.paper;
             if (data.orient) pageConfig.paperOrient = data.orient;
@@ -2775,7 +2788,7 @@ function applyJSON() {
             marginTop: 20,
             marginRight: 20,
             marginBottom: 20,
-            defaultFont: 'Roboto'
+            defaultFont: 'Times New Roman'
         };
         if (data.paper) pageConfig.paperSize = data.paper;
         if (data.orient) pageConfig.paperOrient = data.orient;
@@ -2905,10 +2918,17 @@ function getVarDataKeys(el) {
     return Object.keys(firstItem);
 }
 
-function buildColumnRow(idx, headerName, mapping, keys) {
+function buildColumnRow(idx, headerName, mapping, keys, w, hAlign, bAlign, bg, color, hBold) {
     var isFx = mapping.indexOf('fx:') === 0;
     var fxVal = isFx ? mapping.substring(3) : '';
     var fieldVal = isFx ? '' : mapping;
+
+    w = w || '*';
+    hAlign = hAlign || 'center';
+    bAlign = bAlign || 'left';
+    bg = bg || '';
+    color = color || '';
+    hBold = hBold !== undefined ? hBold : true;
 
     var row = document.createElement('div');
     row.className = 'col-editor-row';
@@ -3003,6 +3023,128 @@ function buildColumnRow(idx, headerName, mapping, keys) {
     rightCol.appendChild(controlRow);
     mainRow.appendChild(rightCol);
     row.appendChild(mainRow);
+
+    // Styling row: Width, Header Bold, Header Align, Body Align, Background Color, Text Color
+    var stylingRow = document.createElement('div');
+    stylingRow.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; border-top:1px solid #313244; padding-top:8px;';
+
+    // Width
+    var wDiv = document.createElement('div');
+    wDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px; width:65px;';
+    var wLbl = document.createElement('span');
+    wLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    wLbl.textContent = 'Width';
+    wDiv.appendChild(wLbl);
+    var wInput = document.createElement('input');
+    wInput.className = 'col-width-input';
+    wInput.style.cssText = 'width:100%; padding:3px 5px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:11px; box-sizing:border-box;';
+    wInput.value = w;
+    wInput.placeholder = '*';
+    wDiv.appendChild(wInput);
+    stylingRow.appendChild(wDiv);
+
+    // Header Bold
+    var hbDiv = document.createElement('div');
+    hbDiv.style.cssText = 'display:flex; flex-direction:column; gap:4px; align-items:center;';
+    var hbLbl = document.createElement('span');
+    hbLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    hbLbl.textContent = 'H.Bold';
+    hbDiv.appendChild(hbLbl);
+    var hbCheck = document.createElement('input');
+    hbCheck.type = 'checkbox';
+    hbCheck.className = 'col-hbold-checkbox';
+    hbCheck.checked = !!hBold;
+    hbCheck.style.cssText = 'margin:0; width:14px; height:14px;';
+    hbDiv.appendChild(hbCheck);
+    stylingRow.appendChild(hbDiv);
+
+    // Header Align
+    var haDiv = document.createElement('div');
+    haDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px; width:75px;';
+    var haLbl = document.createElement('span');
+    haLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    haLbl.textContent = 'H.Align';
+    haDiv.appendChild(haLbl);
+    var haSel = document.createElement('select');
+    haSel.className = 'col-halign-select';
+    haSel.style.cssText = 'width:100%; padding:3px 5px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:11px;';
+    haSel.innerHTML = '<option value="left" '+(hAlign==='left'?'selected':'')+'>left</option>' +
+                       '<option value="center" '+(hAlign==='center'?'selected':'')+'>center</option>' +
+                       '<option value="right" '+(hAlign==='right'?'selected':'')+'>right</option>';
+    haDiv.appendChild(haSel);
+    stylingRow.appendChild(haDiv);
+
+    // Body Align
+    var baDiv = document.createElement('div');
+    baDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px; width:75px;';
+    var baLbl = document.createElement('span');
+    baLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    baLbl.textContent = 'B.Align';
+    baDiv.appendChild(baLbl);
+    var baSel = document.createElement('select');
+    baSel.className = 'col-balign-select';
+    baSel.style.cssText = 'width:100%; padding:3px 5px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:11px;';
+    baSel.innerHTML = '<option value="left" '+(bAlign==='left'?'selected':'')+'>left</option>' +
+                       '<option value="center" '+(bAlign==='center'?'selected':'')+'>center</option>' +
+                       '<option value="right" '+(bAlign==='right'?'selected':'')+'>right</option>';
+    baDiv.appendChild(baSel);
+    stylingRow.appendChild(baDiv);
+
+    // Background Color (Bg)
+    var bgDiv = document.createElement('div');
+    bgDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+    var bgLbl = document.createElement('span');
+    bgLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    bgLbl.textContent = 'Bg Color';
+    bgDiv.appendChild(bgLbl);
+    var bgWrapper = document.createElement('div');
+    bgWrapper.style.cssText = 'display:flex; align-items:center; gap:2px;';
+    var bgTxt = document.createElement('input');
+    bgTxt.type = 'text';
+    bgTxt.className = 'col-bg-text-input';
+    bgTxt.placeholder = 'none';
+    bgTxt.value = bg;
+    bgTxt.style.cssText = 'width:52px; padding:3px 4px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:10px; box-sizing:border-box;';
+    bgWrapper.appendChild(bgTxt);
+    var bgColorInput = document.createElement('input');
+    bgColorInput.type = 'color';
+    bgColorInput.value = (bg && bg.startsWith('#')) ? bg : '#ffffff';
+    bgColorInput.style.cssText = 'width:20px; height:18px; padding:0; border:none; background:transparent; cursor:pointer; flex-shrink:0;';
+    bgColorInput.oninput = function() {
+        bgTxt.value = this.value;
+    };
+    bgWrapper.appendChild(bgColorInput);
+    bgDiv.appendChild(bgWrapper);
+    stylingRow.appendChild(bgDiv);
+
+    // Text Color
+    var tcDiv = document.createElement('div');
+    tcDiv.style.cssText = 'display:flex; flex-direction:column; gap:2px;';
+    var tcLbl = document.createElement('span');
+    tcLbl.style.cssText = 'font-size:9px; color:#6c7086;';
+    tcLbl.textContent = 'Text Color';
+    tcDiv.appendChild(tcLbl);
+    var tcWrapper = document.createElement('div');
+    tcWrapper.style.cssText = 'display:flex; align-items:center; gap:2px;';
+    var tcTxt = document.createElement('input');
+    tcTxt.type = 'text';
+    tcTxt.className = 'col-tc-text-input';
+    tcTxt.placeholder = 'none';
+    tcTxt.value = color;
+    tcTxt.style.cssText = 'width:52px; padding:3px 4px; background:#11111b; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; font-size:10px; box-sizing:border-box;';
+    tcWrapper.appendChild(tcTxt);
+    var tcColorInput = document.createElement('input');
+    tcColorInput.type = 'color';
+    tcColorInput.value = (color && color.startsWith('#')) ? color : '#000000';
+    tcColorInput.style.cssText = 'width:20px; height:18px; padding:0; border:none; background:transparent; cursor:pointer; flex-shrink:0;';
+    tcColorInput.oninput = function() {
+        tcTxt.value = this.value;
+    };
+    tcWrapper.appendChild(tcColorInput);
+    tcDiv.appendChild(tcWrapper);
+    stylingRow.appendChild(tcDiv);
+
+    row.appendChild(stylingRow);
     return row;
 }
 
@@ -3018,9 +3160,35 @@ function openColumnsEditor(elId) {
     // Store keys on container for addColumnRow
     container._varKeys = keys;
 
+    // Parse comma-separated properties from el
+    var colFills = (el.colFills || '').split(',').map(function(f){return f.trim();});
+    var colColors = (el.colColors || '').split(',').map(function(c){return c.trim();});
+    var headerAligns = (el.headerAligns || '').split(',').map(function(a){return a.trim();});
+    var bodyAligns = (el.bodyAligns || '').split(',').map(function(a){return a.trim();});
+    var widths = (el.widths || '').split(',').map(function(w){return w.trim();});
+    
+    // For header bolds, it can be a comma-separated list or fallback to el.headerBold
+    var headerBolds = [];
+    if (el.headerBolds) {
+        headerBolds = el.headerBolds.split(',').map(function(b){return b.trim() === 'true';});
+    } else {
+        // Fallback to global headerBold
+        var hB = el.headerBold !== false;
+        for (var i = 0; i < el.headers.length; i++) {
+            headerBolds.push(hB);
+        }
+    }
+
     el.headers.forEach(function(header, idx) {
         var m = mappings[idx] || '';
-        container.appendChild(buildColumnRow(idx, header, m, keys));
+        var bg = colFills[idx] || '';
+        var color = colColors[idx] || '';
+        var hAlign = headerAligns[idx] || 'center';
+        var bAlign = bodyAligns[idx] || 'left';
+        var w = widths[idx] || '*';
+        var hBold = headerBolds[idx] !== undefined ? headerBolds[idx] : (el.headerBold !== false);
+        
+        container.appendChild(buildColumnRow(idx, header, m, keys, w, hAlign, bAlign, bg, color, hBold));
     });
 
     document.getElementById('fieldMappingModal').classList.add('show');
@@ -3033,7 +3201,7 @@ function addColumnRow() {
     var container = document.getElementById('fieldMappingRows');
     var keys = container._varKeys || [];
     var count = container.querySelectorAll('.col-editor-row').length;
-    container.appendChild(buildColumnRow(count, 'Column ' + (count + 1), '', keys));
+    container.appendChild(buildColumnRow(count, 'Column ' + (count + 1), '', keys, '*', 'center', 'left', '', '', true));
     // Re-index labels
     reindexColumnRows();
 }
@@ -3064,9 +3232,18 @@ function saveFieldMappingModal() {
     var el = elements.find(function(e) { return e.id === fieldMappingElId; });
     if (!el) return;
 
+    saveUndo();
+
     var rows = document.querySelectorAll('#fieldMappingRows .col-editor-row');
     var headers = [];
     var mappings = [];
+    var widths = [];
+    var headerAligns = [];
+    var bodyAligns = [];
+    var colFills = [];
+    var colColors = [];
+    var headerBolds = [];
+
     rows.forEach(function(row) {
         var headerInput = row.querySelector('.col-header-input');
         var sel = row.querySelector('.fm-field-select');
@@ -3082,6 +3259,25 @@ function saveFieldMappingModal() {
         } else {
             mappings.push('');
         }
+
+        // Read stylingRow inputs
+        var wInput = row.querySelector('.col-width-input');
+        widths.push(wInput ? (wInput.value.trim() || '*') : '*');
+
+        var hbCheck = row.querySelector('.col-hbold-checkbox');
+        headerBolds.push(hbCheck ? (hbCheck.checked ? 'true' : 'false') : 'true');
+
+        var haSel = row.querySelector('.col-halign-select');
+        headerAligns.push(haSel ? haSel.value : 'center');
+
+        var baSel = row.querySelector('.col-balign-select');
+        bodyAligns.push(baSel ? baSel.value : 'left');
+
+        var bgTxt = row.querySelector('.col-bg-text-input');
+        colFills.push(bgTxt ? bgTxt.value.trim() : '');
+
+        var tcTxt = row.querySelector('.col-tc-text-input');
+        colColors.push(tcTxt ? tcTxt.value.trim() : '');
     });
 
     el.headers = headers;
@@ -3089,6 +3285,15 @@ function saveFieldMappingModal() {
     // Use || separator if any fx: mapping to avoid comma conflicts in expressions
     var hasFx = mappings.some(function(m) { return m.indexOf('fx:') === 0; });
     el.fieldMappings = mappings.join(hasFx ? '||' : ',');
+
+    // Save as comma-separated strings
+    el.widths = widths.join(',');
+    el.headerAligns = headerAligns.join(',');
+    el.bodyAligns = bodyAligns.join(',');
+    el.colFills = colFills.join(',');
+    el.colColors = colColors.join(',');
+    el.headerBolds = headerBolds.join(',');
+
     render();
     renderProps();
     closeFieldMappingModal();
@@ -3684,14 +3889,31 @@ function registerFonts() {
                 bolditalics: 'Roboto-MediumItalic.ttf'
             }
         };
-        // Add Times New Roman if vfs has it
-        if (pdfMake.vfs && (pdfMake.vfs['Times-New-Roman.ttf'] || pdfMake.vfs['TimesNewRoman.ttf'])) {
-            pdfMake.fonts['Times New Roman'] = {
-                normal: pdfMake.vfs['Times-New-Roman.ttf'] ? 'Times-New-Roman.ttf' : 'TimesNewRoman.ttf',
-                bold: pdfMake.vfs['Times-New-Roman-Bold.ttf'] ? 'Times-New-Roman-Bold.ttf' : 'TimesNewRoman-Bold.ttf',
-                italics: pdfMake.vfs['Times-New-Roman-Italic.ttf'] ? 'Times-New-Roman-Italic.ttf' : 'TimesNewRoman-Italic.ttf',
-                bolditalics: pdfMake.vfs['Times-New-Roman-BoldItalic.ttf'] ? 'Times-New-Roman-BoldItalic.ttf' : 'TimesNewRoman-BoldItalic.ttf'
+        // Add Times New Roman from window.TimesNewRomanFonts
+        if (typeof window !== 'undefined' && window.TimesNewRomanFonts && pdfMake.vfs) {
+            pdfMake.vfs['SVN-Times-New-Roman.ttf'] = window.TimesNewRomanFonts.normal;
+            pdfMake.vfs['SVN-Times-New-Roman-Bold.ttf'] = window.TimesNewRomanFonts.bold;
+            pdfMake.vfs['SVN-Times-New-Roman-Italic.ttf'] = window.TimesNewRomanFonts.italics;
+            pdfMake.vfs['SVN-Times-New-Roman-BoldItalic.ttf'] = window.TimesNewRomanFonts.bolditalics;
+            
+            var timesNewRomanDef = {
+                normal: 'SVN-Times-New-Roman.ttf',
+                bold: 'SVN-Times-New-Roman-Bold.ttf',
+                italics: 'SVN-Times-New-Roman-Italic.ttf',
+                bolditalics: 'SVN-Times-New-Roman-BoldItalic.ttf'
             };
+            pdfMake.fonts['Times New Roman'] = timesNewRomanDef;
+            pdfMake.fonts['TimesNewRoman'] = timesNewRomanDef;
+            
+            registerFontFaceInBrowser('Times New Roman', 'normal', window.TimesNewRomanFonts.normal);
+            registerFontFaceInBrowser('Times New Roman', 'bold', window.TimesNewRomanFonts.bold);
+            registerFontFaceInBrowser('Times New Roman', 'italic', window.TimesNewRomanFonts.italics);
+            registerFontFaceInBrowser('Times New Roman', 'bold italic', window.TimesNewRomanFonts.bolditalics);
+            
+            registerFontFaceInBrowser('TimesNewRoman', 'normal', window.TimesNewRomanFonts.normal);
+            registerFontFaceInBrowser('TimesNewRoman', 'bold', window.TimesNewRomanFonts.bold);
+            registerFontFaceInBrowser('TimesNewRoman', 'italic', window.TimesNewRomanFonts.italics);
+            registerFontFaceInBrowser('TimesNewRoman', 'bold italic', window.TimesNewRomanFonts.bolditalics);
         }
         
         pageConfig.customFonts.forEach(function(font) {
@@ -4125,3 +4347,50 @@ render();
     // Call init
     initAutocomplete();
 })();
+
+// ============================================================
+// IFRAME INTEGRATION (POSTMESSAGE API FOR VUE/REACT)
+// ============================================================
+window.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'INIT_EDITOR') {
+        if (msg.data && msg.data.template) {
+            elements = msg.data.template.elements || [];
+            pageConfig = msg.data.template.pageConfig || pageConfig;
+        }
+        if (msg.data && msg.data.variables) {
+            variables = msg.data.variables;
+        }
+        var maxId = 0;
+        elements.forEach(function(el) { if (el.id > maxId) maxId = el.id; });
+        idCounter = maxId;
+        selectedId = null;
+        selectedIds = [];
+        updateAlignToolbar();
+        changePaper();
+        registerFonts();
+        render();
+        renderProps();
+        renderOutline();
+    } else if (msg.type === 'GET_JSON') {
+        var templateData = {
+            elements: elements,
+            pageConfig: pageConfig
+        };
+        window.parent.postMessage({
+            type: 'SEND_JSON',
+            data: templateData
+        }, '*');
+    }
+});
+
+// Notify parent window that editor is ready
+try {
+    if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'EDITOR_READY' }, '*');
+    }
+} catch (e) {
+    console.warn('Failed to notify parent window:', e);
+}

@@ -1,5 +1,6 @@
 import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
+import { TimesNewRomanFonts } from './timesNewRomanFonts';
 
 // Set default font for pdfmake
 pdfMake.vfs = pdfFonts.pdfMake.vfs;
@@ -75,7 +76,7 @@ function resolveFieldValue(mapping, item, index, variables) {
             return 'Fx Error: ' + e.message;
         }
     }
-    return item[mapping] !== undefined ? item[mapping] : '';
+    return (item[mapping] !== undefined && item[mapping] !== null) ? item[mapping] : '';
 }
 
 function getParsedWidth(widthVal, pageConfig) {
@@ -126,7 +127,7 @@ function getElementWidth(el, pageConfig) {
         }
         return getParsedWidth(el.width, pageConfig) || 500;
     }
-    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel') {
+    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel' || el.type === 'emptyline') {
         var w = getParsedWidth(el.width, pageConfig) || 100;
         return (el.type === 'text' || el.type === 'var') ? Math.max(20, w) : w;
     }
@@ -149,6 +150,7 @@ function getElementHeight(el, variables, pageConfig) {
         return rSize.h;
     }
     if (el.type === 'rect') return el.rectH || 20;
+    if (el.type === 'emptyline') return parseFloat(el.height) || 20;
     if (el.type === 'line') return el.lineWeight || 1;
     if (el.type === 'text' || el.type === 'var') return Math.ceil((el.fontSize || 13) * 1.15);
     if (el.type === 'table') {
@@ -230,6 +232,9 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             if (el.isFx) {
                 displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
             }
+            if (displayText === null || displayText === undefined) {
+                displayText = '';
+            }
             var textColor = el.color;
             if (el.isColorFx && el.colorFx) {
                 var evaluatedColor = evaluateFx(el.colorFx, variables);
@@ -243,7 +248,10 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             if (el.isFx) {
                 displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
             } else {
-                displayVal = variables[el.varName] !== undefined ? variables[el.varName] : '';
+                displayVal = (variables[el.varName] !== undefined && variables[el.varName] !== null) ? variables[el.varName] : '';
+            }
+            if (displayVal === null || displayVal === undefined) {
+                displayVal = '';
             }
             var val = (el.prefix||'') + displayVal;
             var textColor = el.color || '#000000';
@@ -255,17 +263,19 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             }
             return { text: parseHtmlToPdfText(val), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
         case 'line':
-            return { canvas: [{ type:'line', x1:0, y1:0, x2:el.lineWidth, y2:0, lineWidth:el.lineWeight, lineColor:el.color }] };
+            return { canvas: [{ type:'line', x1:0, y1:0, x2:getParsedWidth(el.lineWidth, pageConfig), y2:0, lineWidth:parseFloat(el.lineWeight) || 1, lineColor:el.color }] };
+        case 'emptyline':
+            return { text: ' ', fontSize: 1, margin: [0, 0, 0, (parseFloat(el.height) || 20)] };
         case 'rect':
-            return { canvas: [{ type:'rect', x:0, y:0, w:el.rectW, h:el.rectH, r:el.radius, lineWidth:el.lineWeight, lineColor:el.color, color:el.fillColor||undefined }] };
+            return { canvas: [{ type:'rect', x:0, y:0, w:getParsedWidth(el.rectW, pageConfig), h:parseFloat(el.rectH) || 20, r:parseFloat(el.radius) || 0, lineWidth:parseFloat(el.lineWeight) || 0, lineColor:el.color, color:el.fillColor||undefined }] };
         case 'shape':
-            var shW = el.width || 100;
-            var shH = el.height || 50;
+            var shW = getParsedWidth(el.width, pageConfig);
+            var shH = parseFloat(el.height) || 50;
             var shType = el.shapeType || 'rect';
-            var shBdrW = el.lineWidth || 1;
+            var shBdrW = parseFloat(el.lineWidth) || 1;
             var shBdrC = el.color || '#000000';
             var shFill = el.fillColor || 'none';
-            var angle = el.rotate || 0;
+            var angle = parseFloat(el.rotate) || 0;
             
             var rSize = getRotatedSize(shW, shH, angle);
             var svgStr = '<svg width="'+rSize.w+'" height="'+rSize.h+'" viewBox="0 0 '+rSize.w+' '+rSize.h+'" xmlns="http://www.w3.org/2000/svg">';
@@ -305,6 +315,18 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             var pdfHAligns = (el.headerAligns||'center').split(',').map(function(a){return a.trim();});
             var pdfBAligns = (el.bodyAligns||'left').split(',').map(function(a){return a.trim();});
             var colFills = (el.colFills || '').split(',').map(function(f){return f.trim();});
+            var colColors = (el.colColors || '').split(',').map(function(c){return c.trim();});
+            
+            var headerBolds = [];
+            if (el.headerBolds) {
+                headerBolds = el.headerBolds.split(',').map(function(b){return b.trim() === 'true';});
+            } else {
+                var hB = el.headerBold !== false;
+                for (var i = 0; i < el.headers.length; i++) {
+                    headerBolds.push(hB);
+                }
+            }
+
             var oddFill = el.oddRowFill || '';
             var evenFill = el.evenRowFill || '';
             
@@ -317,10 +339,11 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     var keys = Object.keys(item);
                     for (var i = 0; i < el.headers.length; i++) {
                         var resolved = resolveFieldValue(fields[i], item, rIdx, variables);
-                        if (resolved !== undefined) {
+                        if (resolved !== undefined && resolved !== null) {
                             row.push(resolved);
                         } else {
-                            row.push((keys[i] !== undefined && item[keys[i]] !== undefined) ? item[keys[i]] : '');
+                            var rawVal = (keys[i] !== undefined) ? item[keys[i]] : undefined;
+                            row.push((rawVal !== undefined && rawVal !== null) ? rawVal : '');
                         }
                     }
                     return row;
@@ -338,29 +361,38 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             if (showH) {
                 body.push(el.headers.map(function(h,i) {
                     var cellBg = colFills[i] || '';
+                    var hBoldVal = headerBolds[i] !== undefined ? headerBolds[i] : (el.headerBold !== false);
+                    var cellColor = colColors[i] || el.color || '#000000';
                     return {
                         text: h,
-                        bold: el.headerBold !== false,
+                        bold: hBoldVal,
                         alignment: pdfHAligns[i] || pdfHAligns[0] || 'center',
                         fillColor: cellBg || undefined,
+                        color: cellColor || undefined,
                         border: cellBorder
                     };
                 }));
             }
             displayData.forEach(function(row, rIdx) {
-                body.push(row.map(function(c,i) {
+                if (!Array.isArray(row)) return;
+                var safeRow = [];
+                for (var i = 0; i < widths.length; i++) {
+                    var cellVal = row[i] !== undefined ? row[i] : '';
                     var isEvenRow = (rIdx % 2 === 1);
                     var rowBg = isEvenRow ? evenFill : oddFill;
                     var cellBg = colFills[i] || rowBg || '';
-                    return {
-                        text: parseHtmlToPdfText(c),
+                    var cellColor = colColors[i] || el.color || '#000000';
+                    safeRow.push({
+                        text: parseHtmlToPdfText(cellVal),
                         alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
                         bold: el.bold || false,
                         italics: el.italic || false,
                         fillColor: cellBg || undefined,
+                        color: cellColor || undefined,
                         border: cellBorder
-                    };
-                }));
+                    });
+                }
+                body.push(safeRow);
             });
             var tblLayout = el.showBorder ? {
                 hLineWidth: function() { return el.borderWidth||1; },
@@ -376,8 +408,8 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     src = variables[el.dataVar];
                 }
                 var imgW = getParsedWidth(el.width, pageConfig);
-                var imgH = el.height || 100;
-                var angle = el.rotate || 0;
+                var imgH = parseFloat(el.height) || 100;
+                var angle = parseFloat(el.rotate) || 0;
 
                 if (angle !== 0) {
                     var rSize = getRotatedSize(imgW, imgH, angle);
@@ -394,11 +426,11 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                         var base64Part = src.substring(base64Idx + 8);
                         try {
                             var svgString = decodeURIComponent(escape(atob(base64Part)));
-                            return { svg: svgString, width: el.width || 100, height: el.height || 100 };
+                            return { svg: svgString, width: imgW, height: imgH };
                         } catch (err) {
                             try {
                                 var svgString = atob(base64Part);
-                                return { svg: svgString, width: el.width || 100, height: el.height || 100 };
+                                return { svg: svgString, width: imgW, height: imgH };
                             } catch (err2) {
                                 console.error('SVG decode error:', err2);
                             }
@@ -409,7 +441,7 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                 if (imagesDict) {
                     imagesDict[imgKey] = src;
                 }
-                return { image: imgKey, width: el.width || 100, height: el.height || 100 };
+                return { image: imgKey, width: imgW, height: imgH };
             }
             return { text: '[No image]', fontSize: 11, italics: true };
         case 'panel':
@@ -447,6 +479,7 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     childrenLayout.push(wrappedNode);
                 }
             });
+            var panelH = parseFloat(el.height) || 150;
             return {
                 stack: [
                     {
@@ -454,17 +487,17 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                             {
                                 type: 'rect',
                                 x: 0, y: 0,
-                                w: el.width,
-                                h: el.height,
+                                w: getParsedWidth(el.width, pageConfig),
+                                h: panelH,
                                 color: el.bgColor || 'transparent',
-                                lineWidth: el.borderWidth || 0,
+                                lineWidth: parseFloat(el.borderWidth) || 0,
                                 lineColor: el.borderColor || 'transparent'
                             }
                         ]
                     },
                     {
                         stack: childrenLayout,
-                        margin: [0, -el.height, 0, 0]
+                        margin: [0, -panelH, 0, 0]
                     }
                 ]
             };
@@ -666,10 +699,6 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                     width: clampedW,
                     stack: [ node ]
                 };
-                var widthVal = el.width;
-                if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                    colNode.width = widthVal.toString().trim();
-                }
                 if (isRelativeRow) {
                     rowNode = { columns: [ colNode ], relativePosition: { x: leftMargin, y: gapY } };
                 } else {
@@ -737,11 +766,6 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
                         stack: [ node ]
                     };
                     
-                    var widthVal = el.width;
-                    if (widthVal && widthVal.toString().indexOf('%') !== -1) {
-                        colNode.width = widthVal.toString().trim();
-                    }
-                    
                     columns.push(colNode);
                     prevEnd = currentStart + clampedW;
                 }
@@ -803,14 +827,20 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
                 }
             };
         }
-        if (pdfMake.vfs && (pdfMake.vfs['Times-New-Roman.ttf'] || pdfMake.vfs['TimesNewRoman.ttf'])) {
-            pdfMake.fonts['Times New Roman'] = {
-                normal: pdfMake.vfs['Times-New-Roman.ttf'] ? 'Times-New-Roman.ttf' : 'TimesNewRoman.ttf',
-                bold: pdfMake.vfs['Times-New-Roman-Bold.ttf'] ? 'Times-New-Roman-Bold.ttf' : 'TimesNewRoman-Bold.ttf',
-                italics: pdfMake.vfs['Times-New-Roman-Italic.ttf'] ? 'Times-New-Roman-Italic.ttf' : 'TimesNewRoman-Italic.ttf',
-                bolditalics: pdfMake.vfs['Times-New-Roman-BoldItalic.ttf'] ? 'Times-New-Roman-BoldItalic.ttf' : 'TimesNewRoman-BoldItalic.ttf'
-            };
+        if (pdfMake.vfs) {
+            pdfMake.vfs['SVN-Times-New-Roman.ttf'] = TimesNewRomanFonts.normal;
+            pdfMake.vfs['SVN-Times-New-Roman-Bold.ttf'] = TimesNewRomanFonts.bold;
+            pdfMake.vfs['SVN-Times-New-Roman-Italic.ttf'] = TimesNewRomanFonts.italics;
+            pdfMake.vfs['SVN-Times-New-Roman-BoldItalic.ttf'] = TimesNewRomanFonts.bolditalics;
         }
+        var timesNewRomanDef = {
+            normal: 'SVN-Times-New-Roman.ttf',
+            bold: 'SVN-Times-New-Roman-Bold.ttf',
+            italics: 'SVN-Times-New-Roman-Italic.ttf',
+            bolditalics: 'SVN-Times-New-Roman-BoldItalic.ttf'
+        };
+        pdfMake.fonts['Times New Roman'] = timesNewRomanDef;
+        pdfMake.fonts['TimesNewRoman'] = timesNewRomanDef;
 
         if (pageConfig.customFonts && Array.isArray(pageConfig.customFonts)) {
             pageConfig.customFonts.forEach(function(font) {
@@ -873,4 +903,12 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
 export function generatePDF(templateJson, dynamicVariables, fileName = 'report.pdf') {
     var docDefinition = buildDocDefinition(templateJson, dynamicVariables);
     pdfMake.createPdf(docDefinition).download(fileName);
+}
+
+/**
+ * Print PDF directly on the browser.
+ */
+export function printPDF(templateJson, dynamicVariables) {
+    var docDefinition = buildDocDefinition(templateJson, dynamicVariables);
+    pdfMake.createPdf(docDefinition).print();
 }

@@ -1,521 +1,204 @@
-# FluentReports Editor — Kiến Trúc, API & Tài Liệu Tham Chiếu
+# Report Editor — Kiến Trúc, Quy Chuẩn Cấu Trúc JSON & Tài Liệu Phát Triển
 
-## 1. Tổng Quan
-
-**FluentReports** là một Data Driven PDF Reporting Engine cho **Node.js** và **Browsers**, được phát triển bởi Nathanael Anderson.
-
-- **GitHub**: [NathanaelA/fluentreports](https://github.com/nathanaela/fluentReports)
-- **Website/Demo**: [fluentreports.com](https://www.fluentreports.com)
-- **npm**: `npm install fluentreports`
-
-Dự án của bạn sử dụng **FluentReports Editor** (browser-based visual report designer) để thiết kế và chỉnh sửa report, xuất ra file JSON mô tả report, sau đó dùng FluentReports Engine để render thành PDF.
+Tài liệu này chứa toàn bộ các kiến thức cốt lõi, sơ đồ kiến trúc, định dạng dữ liệu và kinh nghiệm thực chiến dùng để xây dựng, phát triển và bảo trì hệ thống **Report Editor** (Trình biên tập báo cáo trực quan dựa trên canvas kết hợp engine pdfMake).
 
 ---
 
-## 2. Cấu Trúc Dự Án
+## 1. Tổng Quan Hệ Thống
+
+Hệ thống **Report Editor** là một giải pháp thiết kế biểu mẫu báo cáo kéo thả WYSIWYG trực quan (Visual Report Designer) trên trình duyệt, kết hợp với bộ phát sinh PDF mạnh mẽ (PDF Generator) hoạt động hoàn toàn ở phía client/server không phụ thuộc môi trường DOM.
+
+### 1.1 Điểm Nổi Bật của Kiến Trúc Mới
+* **Visual Canvas**: Kéo thả, co giãn (resize) linh hoạt các đối tượng trên màn hình lưới tọa độ.
+* **Layout Grid & Snapping**: Tự động hút dính phần tử theo lề trang (Margin Snapping) và hút dính mép ngoài khi các phần tử kề nhau (Adjacent Snapping).
+* **Live Preview Song Song**: Xem trực tiếp file PDF kết xuất cạnh bên bằng iframe với bộ đệm kép (Double-Buffering) chống chớp nháy màn hình và cơ chế Debounce 450ms tối ưu tài nguyên.
+* **JSON Inspector**: Soạn thảo trực tiếp mã JSON và cập nhật Canvas tức thì.
+* **Tự do hóa Đồ họa (Unconstrained Shapes)**: Các hình nền (Shape, Rect, Line) được tách khỏi luồng tự động đẩy hàng (auto-push) và được vẽ đè lên nhau hoàn hảo (`isOverlayingShape`).
+* **Độc Lập Môi Trường (pdfGenerator.js)**: Module tạo PDF có thể chạy độc lập trong môi trường Vue/React/NodeJS mà không cần DOM canvas.
+
+---
+
+## 2. Cấu Trúc Dự Án Hiện Tại
 
 ```
-d:\Source\ReportFluent\
-├── editReport.html          # Entry point - HTML chứa editor
-├── combined.js              # Bundle JS (~3.4MB) chứa toàn bộ engine + editor
-├── fluentReports.css        # CSS cho visual editor
-├── Backup/                  # Thư mục backup
-├── report.json              # Report template chính
-├── report (1).json          # Report template (bản sao/version)
-├── MauLamSang.json          # Mẫu lâm sàng (lớn nhất ~375KB)
-├── MauLamSang11-12.json     # Mẫu lâm sàng phiên bản 11-12
-├── MauLamSangXuongHang.json # Mẫu lâm sàng xuống hàng
-├── Mau1.json                # Mẫu report 1
-├── Mau11-12.json            # Mẫu report 11-12
-├── Mau-PK-Gian-Hoang.json   # Mẫu PK Gian Hoang
-├── ChiDinhLamSang1812.json  # Chỉ định lâm sàng
-├── Font15PKXuongHang.json   # Mẫu font 15 PK xuống hàng
-├── MauTenPkXuongHang19-12.json
-├── ThemPhanCachTableThuoc.json
-├── report-*.json            # Các phiên bản report theo ngày
-├── test.json
-├── pdfGenerator.js          # [NEW] Utility render PDF không phụ thuộc DOM canvas
-└── KI.md                    # Tài liệu ghi chú kiến thức, kinh nghiệm phát triển
+ReportEditor
+├── editor-pdfmake.html      # Giao diện chính của Trình biên tập (HTML5)
+├── editor-pdfmake.css       # Định dạng giao diện (Dark Mode Catppuccin, Canvas layout, Resizer)
+├── editor-pdfmake.js        # Logic điều khiển Canvas, sự kiện chuột/bàn phím, undo/redo, preview
+├── pdfGenerator.js          # Module sinh định nghĩa tài liệu pdfMake từ cấu trúc JSON
+├── pdfGenerator.bundle.js   # Bundle nén hoàn chỉnh chứa esbuild-bundled pdfMake và font Roboto offline (~4.4MB)
+├── ToaThuocV2.json          # File cấu trúc mẫu thiết kế hiện tại (được dịch sang Tiếng Anh)
+├── ToaThuoc.json            # Bản sao lưu cấu trúc mẫu thiết kế cũ
+├── demo-pdfmake.html        # Ví dụ chạy thử (demo page) tải pdfGenerator và kết xuất thử PDF
+└── KI.md                    # Tài liệu hướng dẫn phát triển và nhật ký cập nhật (chính là file này)
 ```
 
-### 2.1 Kiến Trúc 3 File Chính
-
-| File | Kích thước | Vai trò |
-|------|-----------|---------|
-| [editReport.html](file:///d:/Source/ReportFluent/editReport.html) | 793B | Entry point HTML. Mount editor vào `#fluentReportsEditor` div |
-| [combined.js](file:///d:/Source/ReportFluent/combined.js) | 3.4MB (40,830 dòng) | Bundle chứa toàn bộ library + editor |
-| [fluentReports.css](file:///d:/Source/ReportFluent/fluentReports.css) | 9.6KB (449 dòng) | CSS layout cho visual editor |
-
----
-
-## 3. editReport.html — Entry Point
-
-```html
-<head>
-    <meta charset="utf-8">
-    <title>Design Report</title>
-    <link rel="stylesheet" href="./fluentReports.css">
-    <script>demo_screen=2;</script>  <!-- Biến điều khiển demo mode -->
-    <script src="./combined.js"></script>
-    <style>
-        #fluentReportsEditor {
-            border: solid black 1px;
-            height: 95vh;
-        }
-    </style>
-</head>
-<body>
-    <div id="fluentReportsEditor"></div>
-</body>
-```
-
-> [!NOTE]
-> `demo_screen=2` là biến global cho biết chế độ demo. Editor tự động mount vào div `#fluentReportsEditor`.
+### Chi Tiết Thành Phần:
+1. **[editor-pdfmake.html](file:///d:/Source/ReportEditor/editor-pdfmake.html)**: Cấu trúc vùng Canvas thiết kế bên trái, vùng Live PDF Preview bên phải và Sidebar thuộc tính.
+2. **[editor-pdfmake.css](file:///d:/Source/ReportEditor/editor-pdfmake.css)**: Định nghĩa các CSS class, bảng màu tối (dark theme), scrollbar đồng bộ và thanh kéo giãn Preview (Resizer bar).
+3. **[editor-pdfmake.js](file:///d:/Source/ReportEditor/editor-pdfmake.js)**:
+   - Quản lý trạng thái (`elements`, `selectedIds`, `undoStack`, `pageConfig`).
+   - Xử lý phím tắt: Nhấn `ArrowKeys` để di chuyển nhiều phần tử (ngăn dịch chuyển đúp khi chọn Panel cha), nhấn `Backspace`/`Delete` để xóa phần tử (bỏ qua khi đang gõ text properties).
+   - Tích hợp modal JSON Inspector chỉnh sửa thô trực tiếp.
+4. **[pdfGenerator.bundle.js](file:///d:/Source/ReportEditor/pdfGenerator.bundle.js)**: Đã đóng gói sẵn `pdfmake` (v0.2.10) và font Roboto (hỗ trợ Tiếng Việt), cho phép chạy hoàn toàn offline.
 
 ---
 
-## 4. combined.js — Bundle Analysis
+## 3. Cấu Trúc Report JSON Schema
 
-File **combined.js** (~3.4MB, 40,830 dòng) là một bundle chứa nhiều thư viện:
+Mẫu thiết kế lưu trữ dưới dạng JSON có cấu trúc tối giản gồm mảng phần tử và cấu hình trang.
 
-### 4.1 Thư Viện Bundled
-
-| Thư viện | Dòng bắt đầu | Vai trò |
-|----------|-------------|---------|
-| **PlainDraggable** v2.5.12 | Line 1 | Drag & drop cho các element trong editor |
-| **Base64/Buffer polyfills** | Line ~1980+ | Polyfill cho browser (byteLength, toByteArray, etc.) |
-| **PDFKit** (embedded) | Trong bundle | Engine tạo PDF (node + browser) |
-| **FluentReports Engine** | Trong bundle | Report rendering engine |
-| **FluentReports Editor** | Trong bundle | Visual report designer |
-| **Font data** (base64) | Cuối file (~Line 40700+) | Fonts Times Bold, Times Italic, Times New Roman embedded |
-
-### 4.2 Demo Report Data (cuối file)
-
-Cuối file combined.js chứa demo report data dạng JSON object với:
-- `type: "report"`, `version: 2`
-- Các `variable` tham chiếu dữ liệu: `bs_ten`, `kb_ghi_chu1`, `kb_sdt_nguoi_giam_ho`, `kb_nguoi_giam_ho`
-- `print` settings: `absoluteX`, `absoluteY`, `font`, `fontSize`
-- `fixedHeight: true`, `height: 418`
-- Fonts array với embedded base64 font data
-
----
-
-## 5. fluentReports.css — Editor UI Layout
-
-### 5.1 CSS Grid Layout
-
-Editor sử dụng **CSS Grid** với layout 2 cột:
-
-```css
-.fluentReports {
-    display: grid;
-    grid-template-columns: 200px 1fr;       /* Sidebar 200px | Main area */
-    grid-template-rows: 50px calc(100% - 51px); /* Toolbar 50px | Content */
-    font-family: "HelveticaNeue", Helvetica, Arial, sans-serif;
-    font-size: 12px;
-}
-```
-
-### 5.2 Layout Areas
-
-| CSS Class | Grid Position | Vai trò |
-|-----------|-------------|---------|
-| `.frToolBar` | col 1-3, row 1 | Toolbar trên cùng (bg: #336699) |
-| `.frPropScroller` | col 1, row 2 | Sidebar Properties panel (bg: #336699) |
-| `.frReport` | col 2, row 2 | Main report canvas (bg: #a9a9a9) |
-
-### 5.3 Các Class CSS Quan Trọng
-
-| Class | Vai trò |
-|-------|---------|
-| `.frBand` | Band/dải trong report (bg: #b9b9b9) |
-| `.frLabel`, `.frField`, `.frTitledElement` | Các element trong report (border: transparent 3px) |
-| `.frSelected` | Element được chọn (border: #30c7ff solid 3px) |
-| `.frDialog` | Dialog popup |
-| `.frIconClickable` | Icon có thể click (cursor: pointer) |
-| `.frPropInput` | Input trong properties panel |
-| `.frPropSelect` | Select trong properties panel |
-| `.frPropButton` | Button trong properties panel |
-| `.frTitleDiv` | Title div (gradient: white → grey) |
-| `.frError` | Error display (bg: red, color: white) |
-| `.frHidden` | Ẩn element |
-| `.frIcon` | Custom icon font "fr" |
-| `.frSectionEditor*` | Section editor UI (tree view, drag/drop) |
-
-### 5.4 Section Editor CSS
-
-Editor có Section Editor với tree view:
-- `.frSectionEditorTreeView` — Tree view container (200×200px)
-- `.frSectionEditorDetailsView` — Details panel (200×200px)
-- `.frSectionEditorSelectedTree` — Node được chọn (bg: #B7B6B6)
-- `.frSectionEditorValidDropLocation` — Drop zone hợp lệ (border: green)
-- `.frSectionEditorInValidDropLocation` — Drop zone không hợp lệ (border: red)
-- `.frSectionEditorGhostElement` — Ghost element khi drag (opacity: 0.5)
-
----
-
-## 6. Report JSON Format
-
-### 6.1 Cấu Trúc Cơ Bản
-
+### 3.1 Cấu Trúc Khung JSON
 ```json
 {
-  "type": "report",
-  "dataUUID": 10004,
-  "version": 2,
-  "fontSize": 13,
-  "autoPrint": false,
-  "name": "buffer",
-  "paperSize": "letter",
-  "paperOrientation": "portrait",
-  "margins": {
-    "left": 20,
-    "top": 15,
-    "right": 15,
-    "bottom": 15
-  },
-  "fonts": [...],
-  "header": {...},
-  "detail": {...},
-  "footer": {...},
-  "data": []
-}
-```
-
-### 6.2 Paper Sizes
-
-| Giá trị | Kích thước |
-|---------|-----------|
-| `letter` | 612×792 pt (8.5×11 in) |
-| `legal` | 612×1008 pt |
-| `A4` | 595×842 pt |
-| `A0`-`A10`, `B0`-`B10`, `C0`-`C10` | ISO sizes |
-| `Executive`, `Folio`, `Tabloid` | Khác |
-
-### 6.3 Fonts Section
-
-Fonts được embed trực tiếp dưới dạng **base64 encoded** font data:
-
-```json
-{
-  "fonts": [
+  "elements": [
     {
-      "name": "Times Bold",
-      "data": "AAEAAAARAQAABAAQTFRTSKnc..." 
-    },
-    {
-      "name": "Times Italic",
-      "data": "AAEAAAAQAQAABAAETFRT..."
-    },
-    {
-      "name": "Times New Roman",
-      "data": "AAEAAAASAQAABAAg..."
+      "id": 1,
+      "x": 20,
+      "y": 49,
+      "parentId": null,
+      "type": "text",
+      "text": "Tên đơn vị:",
+      "fontSize": 13,
+      "bold": false,
+      "italic": false,
+      "align": "left",
+      "color": "#000000",
+      "width": 67,
+      "wrap": false,
+      "showFx": "",
+      "useShowFx": false,
+      "isColorFx": false,
+      "colorFx": ""
     }
   ]
 }
 ```
+
+### 3.2 Các Thuộc Tính Chung của Phần Tử (Common Properties)
+* `id` (Number): ID định danh duy nhất của phần tử.
+* `x` (Number): Vị trí tuyệt đối X (pixel) so với lề trái vùng in (hoặc so với Panel cha nếu có `parentId`).
+* `y` (Number): Vị trí tuyệt đối Y (pixel) so với lề trên (hoặc so với Panel cha nếu có `parentId`).
+* `parentId` (Number | null): ID của Panel cha chứa phần tử này. Dùng để kéo di chuyển Panel thì cả nhóm di chuyển theo.
+* `type` (String): Loại phần tử (`text`, `var`, `shape`, `line`, `rect`, `table`, `image`, `panel`, `pagebreak`, `emptyline`).
+* `showFx` (String): Biểu thức JavaScript điều kiện hiển thị phần tử (ẩn/hiển động).
+* `useShowFx` (Boolean): Có kích hoạt biểu thức hiển thị hay không.
+* `isColorFx` / `colorFx`: Biểu thức màu sắc động.
+
+### 3.3 Chi Tiết Các Loại Phần Tử (Element Types)
+
+#### A. Text (`type: "text"`)
+* `text` (String): Chuỗi văn bản hiển thị tĩnh.
+* `fontSize` (Number): Kích thước chữ (px).
+* `bold` / `italic` (Boolean): Định dạng in đậm / in nghiêng.
+* `align` (String): Căn lề chữ (`"left"`, `"center"`, `"right"`).
+* `color` (String): Mã màu Hex (ví dụ: `"#000000"`).
+* `width` (Number | String): Độ rộng phần tử (px hoặc phần trăm `"100%"`).
+* `wrap` (Boolean): Cho phép tự động ngắt dòng khi tràn độ rộng (`true` - ngắt dòng, `false` - viết trên một dòng duy nhất).
+* `isFx` (Boolean): Có dùng biểu thức dynamic không.
+* `fxExpr` (String): Biểu thức JavaScript trả về chuỗi text động (ví dụ: `return $data.patient_name.toUpperCase();`).
+
+#### B. Variable (`type: "var"`)
+* `varName` (String): Tên trường dữ liệu (ví dụ: `patient_name`, `clinic_phone`) để ánh xạ dữ liệu động từ API.
+* Các thuộc tính định dạng tương tự phần tử `text`.
+* `prefix` (String): Tiền tố đứng trước giá trị biến (ví dụ: `"SĐT: "`).
+
+#### C. Shape (`type: "shape"`)
+* `shapeType` (String): Loại hình học vẽ (`"rect"`, `"line"`, `"ellipse"`, `"polygon"`).
+* `width` / `height` (Number): Kích thước hình vẽ.
+* `lineWidth` (Number): Độ dày đường viền.
+* `color` (String): Màu đường viền.
+* `fillColor` (String): Màu tô đặc bên trong (nếu trống sẽ trong suốt).
+* `radius` (Number): Độ bo góc (chỉ dùng cho `shapeType: "rect"`).
+* `points` (String): Chuỗi tọa độ đỉnh đa giác (ví dụ: `"0,50 50,0 100,50"`).
+* `close` (Boolean): Tự đóng kín đa giác.
+* `sides` (Number): Số lượng góc/cạnh khi chọn vẽ đa giác đều (ví dụ: tam giác = 3, ngũ giác = 5).
+
+#### D. Table (`type: "table"`)
+* `cols` / `rows` (Number): Số cột và số dòng tiêu chuẩn.
+* `headers` (Array): Mảng các nhãn tiêu đề cột.
+* `dataVar` (String): Tên mảng dữ liệu lặp động (ví dụ: `"medications"`).
+* `fieldMappings` (String): Các cột tương ứng dữ liệu, phân tách bằng dấu phẩy hoặc `||` (ví dụ: `no, name, quantity`).
+* **Cấu hình chi tiết cột (Gom trong popup Columns Editor modal)**:
+  - `widths` (String): Độ rộng các cột phân tách bằng dấu phẩy (ví dụ: `"*,150,*"`).
+  - `headerBolds` (String): Trạng thái in đậm tiêu đề mỗi cột (`"true,false,true"`).
+  - `headerAligns` (String): Căn lề tiêu đề mỗi cột (`"center,left,right"`).
+  - `bodyAligns` (String): Căn lề nội dung cột tương ứng (`"left,center,right"`).
+  - `colFills` (String): Màu nền riêng từng cột (`"#eee,,#fff"`).
+  - `colColors` (String): Màu chữ riêng từng cột (`"#ff0000,,#0000ff"`).
+* `showBorder` (Boolean): Có hiển thị viền lưới bảng không.
+* `borderWidth` / `borderColor` (Number/String): Độ dày và màu viền bảng.
+* `oddRowFill` / `evenRowFill` (String): Màu nền xen kẽ hàng lẻ và hàng chẵn.
+
+#### E. Panel (`type: "panel"`)
+* `width` / `height` (Number): Kích thước của khung bao Panel.
+* `bgColor` / `borderColor` / `borderWidth`: Màu nền, màu viền, độ dày viền của Panel.
+* Panel chứa các phần tử con qua việc gán `parentId` của các phần tử con trỏ về ID của Panel.
+
+#### F. Page Break & Empty Line (`type: "pagebreak"`, `"emptyline"`)
+* `pagebreak`: Tạo chỉ thị ngắt trang cứng tại tọa độ Y.
+* `emptyline`: Tạo khoảng trống tĩnh với độ cao `height`.
+
+---
+
+## 4. Logic Canvas, Kéo Thả & Snapping (editor-pdfmake.js)
+
+### 4.1 Hệ Thống Quan Hệ Cha - Con (Parent-Child Bindings)
+* Khi kéo một phần tử và thả vào bên trong phạm vi của một **Panel**, hệ thống tự động gán `parentId` của phần tử đó là ID của Panel.
+* Trên Sidebar Outline, phần tử con sẽ được thụt đầu dòng nằm ngay dưới Panel cha.
+* Khi di chuyển Panel cha, toàn bộ phần tử con sẽ di chuyển theo một khoảng cách tương ứng ($\Delta x$, $\Delta y$).
+* Để tránh lỗi di chuyển đúp (Double-Move) khi dùng phím ArrowKeys, hệ thống chỉ di chuyển Panel cha và bỏ qua việc cập nhật tọa độ độc lập của phần tử con nếu phần tử con cũng nằm trong danh sách chọn.
+
+### 4.2 Multi-page Canvas & Hút lề trang
+* Canvas tự động tính toán tổng số trang dựa trên tọa độ lớn nhất của các phần tử và tự động kéo dài chiều cao nền giấy. Vẽ đường đứt nét biểu thị ngắt trang kèm nhãn `"Page 2"`, `"Page 3"`...
+* **Margin Snapping**: Tự động hút dính phần tử khi kéo sát các lề giấy (`marginLeft`, `marginRight`...) và các đường ngắt trang. Xuất hiện đường gióng đỏ hỗ trợ thị giác.
+* **Adjacent Snapping**: Tự động hút sát mép ngoài của hai phần tử kề nhau (cạnh phải chạm cạnh trái, cạnh dưới chạm cạnh trên) hỗ trợ việc xếp nối đuôi thẳng hàng khít sát mà không cần căn tọa độ bằng tay.
+
+---
+
+## 5. Logic Tạo Bố Cục và Render PDF (pdfGenerator.js)
+
+`pdfGenerator.js` chịu trách nhiệm chuyển đổi mảng các phần tử phẳng trên Canvas thành tài liệu lồng cấu trúc hàng/cột của **pdfMake**. Các thuật toán cốt lõi bao gồm:
+
+### 5.1 Thuật Toán Gom Dòng Ngang (Horizontal Row Grouping)
+Để xuất ra PDF chuẩn, hệ thống quét các phần tử và gom nhóm chúng thành các dòng dựa trên tọa độ Y:
+* Hai phần tử được xem là nằm trên cùng một dòng nếu chênh lệch Y nhỏ hơn hoặc bằng 5px (Threshold).
+* **Tối Ưu 50% Overlap Ratio**: Hệ thống chỉ gộp nhóm ngang nếu hai phần tử giao thoa ngang thực sự (ví dụ: các nhãn liên tiếp "Age: 35" và "Gender: Male"). Hàm `horizontalOverlap` tính diện tích giao diện trên X:
+  $$\text{intersection} = \min(x_1 + w_1, x_2 + w_2) - \max(x_1, x_2)$$
+  Nếu tỉ lệ $\frac{\text{intersection}}{\min(w_1, w_2)} > 0.5$ (lớn hơn 50%), hệ thống sẽ coi là giao thoa ngang. Điều này giúp các ô vuông checkbox và dấu tích "x" đè lên nhau không bị gộp chung vào cột hàng ngang mà vẫn vẽ đè lên nhau chính xác.
+
+### 5.2 Loại Bỏ Ràng Buộc Đồ Họa (Unconstrained Shapes)
+* Các đối tượng vẽ hình nền (`type: "shape"`, `rect`, `line`) được bỏ qua hoàn toàn khỏi cơ chế tự động đẩy hàng (`auto-push` trên Canvas) và cơ chế dồn dòng dọc trong PDF generator (thông qua hàm kiểm tra `isOverlayingShape`).
+* Nhờ vậy, hình vẽ, khung bo hoặc ô checkbox không đẩy văn bản khác xuống và ngược lại. Chúng hoạt động như các layer nền tĩnh để văn bản đè lên tự do.
+
+### 5.3 Giới Hạn Chiều Rộng Cột Tránh Méo Chữ (Column Width Clamping)
+* Để loại bỏ triệt để lỗi ép méo chữ dọc của pdfMake khi tổng độ rộng của dòng vượt quá chiều rộng khổ giấy, hệ thống tự động giới hạn độ rộng cột:
+  $$\text{maxAllowedW} = \text{pageWidth} - \text{marginRight} - x$$
+  $$\text{width} = \min(\text{width}, \text{maxAllowedW})$$
+* Điều này giúp văn bản luôn hiển thị đúng hướng, không bao giờ bị nén thành một cột dọc ký tự.
+
+---
+
+## 6. Cơ Chế Live Preview Double-Buffering (Tránh Nhấp Nháy)
+
+Live Preview song song được tối ưu hóa để mang lại trải nghiệm xem trước mượt mà nhất có thể:
+1. **Debounce 450ms**: Trì hoãn việc phát sinh Blob URL và render PDF khi người dùng đang nhập liệu hoặc kéo thả phần tử liên tục để tránh quá tải trình duyệt.
+2. **Double-Buffering (Hai Frame Phản Hồi)**:
+   - Sử dụng hai iframe xem trước đặt ẩn/hiện hoán đổi thông qua thuộc tính `opacity` và `z-index`.
+   - Blob URL của tài liệu PDF mới được nạp vào iframe ẩn chạy ngầm.
+   - Khi iframe ẩn kích hoạt sự kiện `onload` (hoặc sau thời gian chờ an toàn 150ms), nó sẽ được hoán đổi hiển thị lên trên một cách mượt mà và giải phóng Blob URL cũ (`URL.revokeObjectURL`) tránh rò rỉ bộ nhớ.
+3. **Resizer Pointer Lock**: Trong lúc người dùng kéo giãn Sidebar hay Preview Panel, pointer-events của iframe bị khóa (`pointer-events: none`) để chuột không bị "mất tiêu điểm" khi lướt qua frame xem trước PDF.
+
+---
+
+## 7. Quy Trình Phát Triển & Bảo Trì Code (Quy Tắc Vàng)
 
 > [!IMPORTANT]
-> Font data rất lớn (vài trăm KB mỗi font). Đây là lý do các file report JSON có dung lượng lớn (15-375KB).
+> 1. **Kiểm Tra Cú Pháp JS**: Trước khi bàn giao hay đóng gói bundle, luôn luôn kiểm tra lỗi cú pháp bằng cách chạy lệnh:
+>    `node -c editor-pdfmake.js` hoặc `node -c pdfGenerator.js`
+> 2. **Đóng Gói Offline**: Khi có bất kỳ thay đổi nào trong logic của `pdfGenerator.js`, bắt buộc phải build lại file bundle bằng lệnh:
+>    `npx esbuild pdfGenerator.js --bundle --minify --outfile=pdfGenerator.bundle.js --format=esm --external:fs --external:path`
+> 3. **Bảo toàn Giao Diện Anh Hóa (Full English UI)**: Toàn bộ nhãn thuộc tính, thông báo lỗi Fx (`Fx Error:`), nhãn nút bấm của Editor đều sử dụng ngôn ngữ Tiếng Anh tiêu chuẩn để đảm bảo sự đồng bộ toàn cầu.
+> 4. **Tránh Placeholder**: Sử dụng ảnh Base64 hợp lệ hoặc SVG khi vẽ giao diện mẫu, tuyệt đối không chừa các link ảnh trống dễ gây lỗi runtime.
 
-### 6.4 Report Sections (Header/Detail/Footer)
-
-Mỗi section chứa array các **elements**:
-
-#### Print Element
-```json
-{
-  "type": "print",
-  "settings": {
-    "absoluteX": 0,
-    "absoluteY": 287,
-    "font": "Times Italic",
-    "fontSize": 10
-  },
-  "variable": "kb_ghi_chu1"
-}
-```
-
-#### Band Element
-```json
-{
-  "type": "band",
-  "fields": [
-    {
-      "text": "STT",
-      "width": 30,
-      "align": 2
-    },
-    {
-      "variable": "bs_ten",
-      "width": {
-        "type": "function",
-        "name": "Function",
-        "function": "return 200;",
-        "async": false
-      },
-      "align": 2
-    }
-  ]
-}
-```
-
-### 6.5 Element Types
-
-| Type | Mô tả |
-|------|--------|
-| `print` | In text/variable tại vị trí tuyệt đối |
-| `band` | Dải ngang chứa nhiều field |
-| `newLine` | Xuống dòng |
-| `image` | Hình ảnh |
-| `shape` | Hình vẽ (rectangle, line, etc.) |
-
-### 6.6 Settings Properties
-
-| Property | Mô tả | Ví dụ |
-|----------|--------|-------|
-| `absoluteX` | Vị trí X tuyệt đối (pt) | `0` |
-| `absoluteY` | Vị trí Y tuyệt đối (pt) | `287` |
-| `font` | Tên font | `"Times Italic"` |
-| `fontSize` | Cỡ chữ | `10` |
-| `align` | Canh lề (0=left, 1=center, 2=right) | `2` |
-| `fixedHeight` | Chiều cao cố định | `true` |
-| `height` | Chiều cao section (pt) | `418` |
-
-### 6.7 Width Function
-
-Width có thể là số hoặc function:
-```json
-{
-  "width": {
-    "type": "function",
-    "name": "Function",
-    "function": "return 200;",
-    "async": false
-  }
-}
-```
-
----
-
-## 7. FluentReports API (commands.md)
-
-### 7.1 Tạo Report
-
-```javascript
-const Report = require('fluentReports').Report;
-// ESM: import { Report } from 'fluentReports/lib/esm/fluentReports.mjs';
-
-var rpt = new Report("MyCoolReport.pdf", {
-  autoPrint: true,
-  paper: "letter",        // letter, legal, A4, etc.
-  landscape: false,
-  font: "Helvetica",      // Default font
-  fontSize: 12,
-  margins: { left: 72, top: 72, bottom: 72, right: 72 },
-  negativeParentheses: false
-});
-```
-
-### 7.2 API Methods Chính
-
-| Method | Mô tả |
-|--------|--------|
-| `.data(Data)` | **BẮT BUỘC** - Set data (array, object, query function) |
-| `.keys(keys)` | Set key(s) cho sub-report data queries |
-| `.detail(output)` | Định nghĩa cách in mỗi record |
-| `.titleHeader(output, opts)` | Header chỉ trang đầu |
-| `.header(output, opts)` | Header mọi trang |
-| `.footer(output, opts)` | Footer mọi trang |
-| `.summaryFooter(output, opts)` | Footer cuối report |
-| `.addReport(report, opts)` | Thêm sub-report |
-| `.userData(data)` | Set user data tùy chỉnh |
-| `.totalFormatter(fn)` | Hàm format tổng |
-| `.recordCount(callback)` | Callback khi biết số record |
-| `.info(info)` | Set PDF metadata |
-| `.render(callback)` | Render report thành PDF |
-
-### 7.3 Detail Output Formats
-
-```javascript
-// Array format: [[key, width, alignment], ...]
-rpt.detail([["name", 120], ["address", 200], ["state", 20]]);
-
-// Template string format
-rpt.detail("{{name}} lives in the state of {{state}}");
-
-// Function format (async)
-rpt.detail(function(report, data, state, done) {
-  report.print(data.name);
-  report.newLine();
-  done();
-});
-```
-
-### 7.4 Constants
-
-```javascript
-Report.show.once          // Header/footer chỉ 1 lần
-Report.show.newPageOnly   // Mỗi trang mới (nếu đang active)
-Report.show.always        // Luôn luôn
-
-Report.alignment.LEFT
-Report.alignment.CENTER
-Report.alignment.RIGHT
-
-Report.renderType.file
-Report.renderType.pipe
-Report.renderType.buffer
-```
-
-### 7.5 Report Hierarchy
-
-```
-Primary Report Object
-  └── ReportSection
-        └── ReportDataSet
-              └── ReportGroup  ← (Đây là object trả về từ new Report())
-```
-
----
-
-## 8. Các Report JSON Mẫu (Dự Án Y Tế)
-
-### 8.1 Biến (Variables) Thường Dùng
-
-Từ phân tích các file JSON, các biến liên quan đến hệ thống y tế:
-
-| Variable | Mô tả |
-|----------|--------|
-| `bs_ten` | Tên bác sĩ |
-| `kb_ghi_chu1` | Ghi chú khám bệnh |
-| `kb_sdt_nguoi_giam_ho` | SĐT người giám hộ |
-| `kb_nguoi_giam_ho` | Tên người giám hộ |
-
-### 8.2 Fonts Đã Embed
-
-| Font Name | Sử dụng |
-|-----------|---------|
-| `Times Bold` | Tiêu đề, heading |
-| `Times Italic` | Ghi chú, chú thích |
-| `Times New Roman` | Nội dung chính |
-
----
-
-## 9. Cách Sử Dụng Editor
-
-### 9.1 Mở Editor
-1. Mở file `editReport.html` trong browser
-2. Editor sẽ tự mount vào div `#fluentReportsEditor`
-3. Giao diện gồm: Toolbar (trên) + Properties Panel (trái) + Canvas (phải)
-
-### 9.2 Workflow
-
-```mermaid
-flowchart LR
-    A[Mở editReport.html] --> B[Visual Editor]
-    B --> C[Thiết kế Report]
-    C --> D[Export JSON]
-    D --> E[Dùng FluentReports Engine]
-    E --> F[Render PDF]
-```
-
-### 9.3 Import/Export
-- Editor cho phép **import** file JSON report
-- Editor cho phép **export** report design thành JSON
-- JSON file chứa toàn bộ layout + fonts embedded
-
----
-
-## 10. Lưu Ý Quan Trọng
-
-> [!WARNING]
-> - **combined.js** là file bundle minified, KHÔNG nên sửa trực tiếp
-> - Font data embedded làm file JSON rất lớn
-> - `demo_screen=2` trong HTML là biến điều khiển — thay đổi giá trị sẽ ảnh hưởng editor behavior
-
-> [!TIP]
-> - Khi cần thay đổi font, sửa trong JSON (section `fonts`)
-> - Khi cần thay đổi layout, sửa `absoluteX`, `absoluteY` trong settings
-> - Dùng `fixedHeight: true` + `height` để cố định chiều cao section
-> - `align: 0` = left, `align: 1` = center, `align: 2` = right
-
----
-
-## 11. Nhật Ký Cải Tiến & Kinh Nghiệm Phát Triển (Bản cập nhật Mới)
-
-Dưới đây là tổng hợp các cải tiến quan trọng về tính năng, trải nghiệm UI/UX và logic lõi được thực hiện trong phiên bản Editor nâng cấp:
-
-### 11.1 Trải Nghiệm UI/UX & Thiết Kế Thẩm Mỹ
-- **Thanh cuộn (Scrollbar) Hiện Đại**: Tối ưu hóa toàn bộ các thanh cuộn dọc/ngang của Editor sử dụng màu sắc đồng bộ với theme tối Catppuccin Mocha.
-- **Căn Lề Properties Sidebar**: Khắc phục lỗi lệch cột khi căn chỉnh lề (left/center/right) của các thuộc tính dạng Checkbox, mang lại trải nghiệm click thẳng hàng, trực quan.
-- **Hiện Đại Hóa Toolbar & Icon**: Loại bỏ hoàn toàn các emoji và ký tự Unicode thô lỗi thời trên thanh công cụ và bảng danh sách. Thay thế bằng các **SVG Icons** thiết kế phẳng, sắc nét và hỗ trợ chế độ tối/sáng.
-- **Tính Năng Chọn Số Góc Đa Giác (Polygon Sides)**: Thêm trường cấu hình "Số góc" cho loại hình học là đa giác. Trình soạn thảo tự động sinh tọa độ các đỉnh tương đối ứng với đa giác đều (3 cho tam giác, 5 cho ngũ giác, 6 cho lục giác...). Khi co giãn kích thước rộng/cao (W/H), tọa độ các đỉnh sẽ tự động tỉ lệ để đảm bảo đa giác đều vừa khít kích thước mới.
-- **Tự động trừ lề khi đặt chiều rộng dạng phần trăm (Width 100%)**: Đối với các phần tử có chiều rộng khai báo dạng phần trăm (ví dụ: `100%`), Canvas sẽ tự động tính toán và hiển thị đúng chiều rộng vùng in (chiều rộng giấy trừ đi lề trái và lề phải) thay vì tràn ra toàn khổ giấy. Điều này đảm bảo giao diện thiết kế hiển thị chuẩn xác, khớp hoàn toàn với PDF xuất ra.
-
-### 11.2 Panel & Phân Cấp Phần Tử (Drag-and-Drop)
-- **Hệ Thống Quan Hệ Cha - Con (Parent-Child Bindings)**: 
-  - Khi kéo và thả bất kỳ phần tử nào vào bên trong một **Panel**, trình soạn thảo sẽ tự động gán `parentId` của phần tử đó trỏ về ID của Panel chứa nó.
-  - Trong bảng quản lý danh sách phần tử (Elements Outline), các phần tử con được nhóm thụt lề dưới Panel cha của chúng.
-- **Tự Động Mở Rộng Trang & Phân Trang Trực Quan (Multi-page Canvas)**:
-  - Khắc phục giới hạn kéo thả phần tử ở trang 1. Canvas tự động tính toán tổng số trang (`totalPages`) dựa vào vị trí phần tử và ngắt trang (`pagebreak`) để kéo giãn chiều cao nền giấy.
-  - Vẽ đường phân trang đứt nét kèm nhãn màu sắc nổi bật ("Trang 2", "Trang 3"...) giúp định vị chính xác vị trí ngắt trang thực tế khi xuất PDF.
-  - Margin Guides (đường viền lề) được hiển thị lặp lại chính xác ở mọi trang để căn chỉnh chính xác.
-- **Hút Khung Căn Lề (Margin Snapping)**: Hỗ trợ tự động hút (snap) khi kéo phần tử về sát lề trái, lề phải của tài liệu hoặc lề trên, lề dưới của từng trang. Canvas vẽ đường gióng phụ đứt nét màu đỏ trùng với lề trang khi hút, hỗ trợ căn chỉnh chuẩn xác theo thiết kế vùng in.
-- **Hút Kề Nhau (Adjacent Snapping)**: Khắc phục giới hạn chỉ hút khi các cạnh trùng nhau. Hệ thống nay hỗ trợ hút dính mép ngoài khi hai phần tử chạm cạnh kề nhau (mép phải phần tử này chạm mép trái phần tử kia, hoặc mép dưới chạm mép trên), giúp việc sắp xếp các phần tử nối tiếp nhau hoặc xếp chồng lên nhau trở nên cực kỳ dễ dàng và khít sát.
-- **Fix Lỗi Click Chọn Panel**: Sửa lỗi Panel bị mất sự kiện tương tác và không thể click hiển thị Properties sau khi di chuyển trên Canvas (do phần tử con bên trong đè z-index ngăn cản mouse click). Xử lý bằng cách phân phối lại sự kiện click qua layer bao phủ hoặc tính toán vị trí nhấn chuột.
-- **Đồng Bộ Thứ Tự Outline List ("Trên đè dưới")**: Thứ tự các phần tử trong Elements Outline được sắp xếp ngược lại và nhóm hợp lý (Panels render trước ở dưới cùng, các element văn bản/hình vẽ nằm trên đè lên) để khớp hoàn hảo với thứ tự hiển thị z-index trên Canvas.
-
-### 11.3 Tích Hợp Hệ Thống JSON Inspector Trực Tiếp
-- Thêm nút **Xem JSON** trên Toolbar, mở ra một modal cửa sổ hiển thị trực tiếp cấu trúc thiết kế JSON hiện tại.
-- Cho phép người dùng chỉnh sửa trực tiếp dữ liệu JSON tại modal này và bấm **"Cập Nhật Canvas"** để load lại tức thì thay vì phải export/import thủ công qua file.
-
-### 11.4 Giải Pháp Xuất PDF Không Phụ Thuộc DOM Canvas (Dành Cho Vue)
-- **Module độc lập [pdfGenerator.js](file:///d:/Source/ReportFluent/pdfGenerator.js)**: Được tách hoàn toàn khỏi các lệnh DOM (`querySelector`, `offsetHeight`), cho phép sinh tài liệu trực tiếp từ Node.js hoặc các framework SPA (Vue 2, Vue 3, React).
-- **Bản đóng gói sẵn không phụ thuộc [pdfGenerator.bundle.js](file:///d:/Source/ReportFluent/pdfGenerator.bundle.js)**: Nén và tích hợp sẵn toàn bộ thư viện `pdfmake` (v0.2.10) và bộ font `vfs_fonts` (Roboto) cùng với logic xử lý layout PDF vào một file duy nhất. Giúp dự án Vue có thể gọi xuất PDF trực tiếp mà không cần chạy `npm install pdfmake` hay tải qua mạng (phù hợp với môi trường offline/intranet).
-- **Hàm Ước Lượng Chiều Cao Tĩnh (`getElementHeight`)**: Đảm bảo phân trang (pagebreak) chính xác ngay cả khi chạy ngầm trên máy chủ hoặc ứng dụng web nhờ cơ chế nội suy kích thước tĩnh từ font size, số dòng bảng biểu và các chỉ số hình học.
-- **Tương Thích Đầy Đủ**: Hỗ trợ xuất SVG xoay góc, định dạng cột linh hoạt, các bảng dữ liệu động lồng biến số (`fieldMappings`, `dataVar`) và hình ảnh mã hóa base64.
-
-### 11.5 Bản Dịch Tiếng Anh & Tối Ưu Hóa Giao Diện Properties (Bản cập nhật mới nhất)
-- **Bản dịch Tiếng Anh Toàn Diện (Full English Localization)**:
-  - Việt hóa/Anh hóa toàn bộ nhãn giao diện, nút bấm, tiêu đề, các hộp thoại cảnh báo/nhập liệu trong biên tập viên ([editor-pdfmake.html](file:///d:/Source/ReportFluent/editor-pdfmake.html) và [editor-pdfmake.js](file:///d:/Source/ReportFluent/editor-pdfmake.js)).
-  - Chuyển đổi toàn bộ tên các biến giả lập mặc định sang Tiếng Anh (ví dụ: `pk_ten` -> `clinic_name`, `bn_ten` -> `patient_name`, `toa_thuoc` -> `medications`).
-  - Cập nhật nhãn lớp phần tử ẩn `.hidden-preview` trong CSS từ `"Ẩn"` thành `"Hidden"`.
-  - Việt hóa/Anh hóa mẫu đơn thuốc chạy thử ([demo-pdfmake.html](file:///d:/Source/ReportFluent/demo-pdfmake.html)).
-  - Đồng bộ mã lỗi biên dịch biểu thức Fx từ `"Lỗi Fx:"` thành `"Fx Error:"` trên toàn bộ hệ thống (biên tập viên, [pdfGenerator.js](file:///d:/Source/ReportFluent/pdfGenerator.js) và bundle đóng gói).
-  - Sửa lỗi hiển thị chuỗi cảnh báo ảnh trống bị lỗi font/mã hóa (`[KhÃ´ng cÃ³ áº£nh]` / `[Không có ảnh]`) thành `[No image]`.
-- **Thuộc tính Tự Động Xuống Dòng Cho Văn Bản (Auto wrap for Text elements)**:
-  - Hỗ trợ thuộc tính **Auto wrap** (tự động xuống dòng) dạng hộp kiểm (checkbox) cho loại phần tử văn bản thường (`text`), mặc định có giá trị `false`. Khi bỏ chọn (false), phần tử sẽ hiển thị dạng một dòng không ngắt (`white-space: nowrap` trên Canvas và `noWrap: true` trong file PDF xuất ra). Khi tích chọn (true), văn bản sẽ tự động ngắt xuống dòng khi đạt tới giới hạn chiều rộng của phần tử.
-- **Sửa Lỗi Chồng Chéo Và Co Cụm Dọc Chữ Trong Hàng (Fix Horizontal Row Grouping Overlap Squeeze) & Định Vị Hàng Ngang**:
-  - Khắc phục lỗi khi các phần tử nằm xếp chồng thẳng đứng nhưng có vị trí Y quá gần nhau (ví dụ: nhãn "Mã y tế" đặt ngay dưới "Số phiếu" cùng ở X = 500). Trước đây, thuật toán gom nhóm dòng dựa trên khoảng cách Y (`< 10px`) sẽ gộp chúng vào cùng một hàng và đẩy vào mảng `columns` của pdfMake. Việc này khiến phần tử nằm sau bị đẩy ra ngoài mép trang và bị pdfMake co cụm chữ theo hàng dọc (squeezed letter-by-letter).
-  - **Tối ưu hóa bộ lọc giao thoa ngang với tỷ lệ 50% (50% Overlap Ratio Threshold)**: Định nghĩa lại hàm `horizontalOverlap(el1, el2)` để tính tỉ lệ diện tích giao thoa so với phần tử nhỏ hơn: `intersection = Math.min(x1 + w1, x2 + w2) - Math.max(x1, x2)`. Hệ thống chỉ coi là giao thoa ngang khi tỉ lệ này lớn hơn 50% (`intersection / min(w1, w2) > 0.5`). Điều này giúp các phần tử kề nhau trên cùng một dòng (như "Tuổi: 79 tháng" hay "Cân nặng: 35kg" có khung bao chồng lấn nhẹ vài pixel) không bị hiểu nhầm là đè nhau và hiển thị thẳng hàng hoàn hảo, trong khi vẫn cho phép các ô vuông checkbox và chữ "x" nằm đè lên nhau được tách dòng chính xác để xếp chồng.
-  - **Tự do hóa đối tượng đồ họa loại Shape (Unconstrained Shape elements)**: Loại bỏ hoàn toàn các ràng buộc căn chỉnh dọc đối với các đối tượng đồ họa nền (`shape`, `rect`, `line`). Chúng không đẩy phần tử khác và không bị phần tử khác đẩy (được bỏ qua hoàn toàn trong cơ chế `minRowY` của PDF và cơ chế `auto-push` trong `editor-pdfmake.js`). Nhờ đó, các đường kẻ, khung nền, hay ô checkbox sẽ luôn giữ nguyên vị trí thiết kế cố định, cho phép văn bản hoặc dấu tích "x" nằm đè lên hoàn hảo mà không bị lệch dòng.
-  - **Giới hạn tự động độ rộng cột theo biên giấy (Clamp column width to page limits)**: Để loại bỏ triệt để hiện tượng co cụm chữ dọc (squeeze) do tổng độ rộng của các phần tử trong hàng (gồm cả khoảng trống `gap`) vượt quá kích thước khổ giấy thiết kế, hệ thống tự động tính toán độ rộng tối đa cho phép của mỗi phần tử tại vị trí X của nó: `maxAllowedW = pageWidth - marginRight - el.x`. Toàn bộ độ rộng phần tử truyền vào cấu trúc cột pdfMake sẽ được giới hạn bằng `Math.min(elW, maxAllowedW)`. Nhờ vậy, pdfMake luôn nhận diện chính xác diện tích khả dụng và không bao giờ ép méo chữ thành hàng dọc.
-- **Tối Ưu Hóa Nhập Tọa Độ (Position Inputs) & Phím Di Chuyển Nhóm**:
-  - Gộp hai trường tọa độ **X** và **Y** thành một hàng duy nhất có tên **"Position"** nhằm tiết kiệm không gian hiển thị cho cột Properties.
-  - Loại bỏ hoàn toàn các nhãn/placeholder `"X"` và `"Y"` trong hai ô nhập liệu theo yêu cầu tối giản giao diện.
-  - Áp dụng thuộc tính `min-width: 0` trên khung bao flexbox và căn lề `stretch` để đảm bảo hai ô nhập tọa độ X-Y tự động co giãn đều nhau, không bị tràn viền (overflow) và có chiều cao đồng đều 100% so với các ô nhập liệu thuộc tính khác.
-  - Đối với phần tử ngắt trang (`pagebreak`) chỉ có tọa độ Y, ô nhập được hiển thị trực tiếp dạng full-width tương tự như các ô thuộc tính đơn thông thường khác mà không cần bọc trong div flexbox.
-  - Đổi nhãn nút lựa chọn gom nhóm Panel `"Gom vào Panel"` thành `"Group"`.
-  - Hỗ trợ di chuyển nhiều phần tử đã chọn đồng thời bằng các phím mũi tên trên bàn phím (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`). Đồng thời bổ sung bộ lọc kiểm tra để tránh hiện tượng double-move (phần tử con dịch chuyển gấp đôi do cả nó và Panel cha đều di chuyển).
-  - Tích hợp phím tắt nhanh **Delete** và **Backspace** để xóa nhanh một hoặc nhiều phần tử đang được chọn cùng lúc trên màn hình thiết kế (có cơ chế loại trừ khi người dùng đang gõ nhập liệu ở Properties và tự động giải phóng tất cả các phần tử con lồng bên trong).
-- **Tính Năng Xem Trước PDF Trực Tiếp Cạnh Bên (Live PDF Preview side-by-side)**:
-  - Thêm nút **Live Preview** trên thanh công cụ chính để bật/tắt (toggle) chế độ hiển thị song song.
-  - Tách vùng hiển thị trung tâm thành hai pane: **Canvas Pane** (để chỉnh sửa phần tử) và **Preview Pane** (chứa iframe hiển thị PDF) ngăn cách bởi một thanh kéo giãn **Pane Resizer** dọc. Để việc kéo thả mượt mà và dễ dàng hơn:
-    1. **Mở rộng vùng hover/nhấp chuột**: Cả Sidebar Resizer và Preview Resizer đều được bổ sung pseudo-element `::after` ẩn rộng 16px nằm đè lên biên giới tiếp giáp. Nhờ đó, người dùng dễ dàng đưa chuột đến gần là có thể kéo thả ngay lập tức mà không cần phải nhắm chính xác vào thanh hiển thị chỉ rộng 6px.
-    2. **Khóa pointer-events khi kéo thả**: Khi nhấn chuột xuống bắt đầu kéo, toàn bộ sự kiện pointer của iframe xem trước được tạm thời vô hiệu hóa (`pointer-events: none`). Đặc biệt, cơ chế nạp ngầm Double-Buffering được tinh chỉnh để không tự động kích hoạt lại `pointer-events: auto` nếu load xong đúng lúc người dùng đang giữ chuột kéo, ngăn chặn triệt để hiện tượng mất tiêu điểm kéo (focus/drag hijacking).
-  - Người dùng có thể kéo thả thanh resizer để thay đổi tỷ lệ bề rộng hiển thị giữa Canvas và Live PDF (giới hạn Canvas tối thiểu 400px, PDF tối thiểu 300px để tránh vỡ bố cục).
-  - Tích hợp bộ tạo PDF chạy ngầm tự động kích hoạt mỗi khi Canvas cập nhật (`render()`). Bộ tạo này sử dụng cơ chế **debounce 450ms** để trì hoãn biên dịch PDF khi đang thao tác kéo thả hoặc nhập dữ liệu liên tục, tránh gây lag và tối ưu hóa hiệu năng tối đa cho trình duyệt.
-  - Khắc phục triệt để lỗi chớp nháy trắng (flickering/flashing) khó chịu của iframe khi tải lại PDF bằng kỹ thuật **Double-Buffering (Bộ đệm kép)**: Sử dụng 2 iframe xếp chồng lên nhau điều phối qua độ mờ (`opacity`), z-index và hiệu ứng transition. PDF mới được tạo dưới dạng Blob URL nhanh hơn (`URL.createObjectURL` thay vì base64 string) và nạp ngầm vào iframe ẩn. Chỉ khi tài liệu mới đã load xong (hoặc sau 150ms timeout an toàn), hệ thống mới thực hiện hoán đổi hiển thị mượt mà và giải phóng URL cũ (`URL.revokeObjectURL`) để tránh rò rỉ bộ nhớ.
-  - Thiết kế **Preview Toolbar** trên cùng của Panel xem trước tích hợp nút bật/tắt **Auto Update** (Tự động cập nhật) và nút **Refresh** (Cập nhật thủ công). Nếu người dùng tắt chế độ tự động, trình duyệt sẽ không reload lại PDF viewer khi đang thiết kế nhằm loại bỏ hoàn toàn cảm giác giật/nháy màn hình, đồng thời cho phép người dùng chủ động click Refresh để cập nhật PDF bất cứ khi nào muốn.
-  - Loại bỏ nút **Download PDF** trên thanh công cụ chính của Editor theo yêu cầu tối giản hóa các tùy chọn xuất bản trực tiếp.
-
----
-
-## 12. Links Tham Khảo
-
-- [GitHub Repo](https://github.com/nathanaela/fluentReports)
-- [Demo Online](https://www.fluentreports.com/demo.html)
-- [Commands/API Docs](https://github.com/nathanaela/fluentReports/blob/master/commands.md)
-- [Tutorial](https://github.com/nathanaela/fluentReports/blob/master/tutorials.md)
-- [Examples](https://github.com/nathanaela/fluentReports/tree/master/examples)
+Tài liệu này được cập nhật vào ngày **29/05/2026**. Vui lòng tuân thủ nghiêm ngặt các quy định và sơ đồ logic trên để phát triển tính năng mới một cách ổn định nhất.
