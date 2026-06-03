@@ -46,6 +46,7 @@ var pageConfig = {
     marginRight: 20,
     marginBottom: 20,
     defaultFont: 'Times New Roman',
+    defaultFontSize: 13,
     paperSize: 'LETTER',
     paperOrient: 'portrait'
 };
@@ -85,25 +86,53 @@ function isImageVal(val) {
            val.endsWith('.svg');
 }
 
-function evaluateFx(expr, data) {
+function evaluateFx(expr, data, context) {
     try {
+        var item = context ? context.$item : undefined;
+        var index = context ? context.$index : undefined;
         if (/\breturn\b/.test(expr)) {
-            var fn = new Function('$data', expr);
-            var res = fn(data);
+            var fn = new Function('$data', '$item', '$index', expr);
+            var res = fn(data, item, index);
             return res !== undefined && res !== null ? res : '';
         }
-        var fn = new Function('$data', 'return eval(arguments[1]);');
-        var res = fn(data, expr);
+        var fn = new Function('$data', '$item', '$index', 'return eval(arguments[3]);');
+        var res = fn(data, item, index, expr);
         return res !== undefined && res !== null ? res : '';
     } catch (e) {
         return 'Fx Error: ' + e.message;
     }
 }
 
-function isElementVisible(el, data) {
+function resolveVariableValue(varName, variables, context, fallbackValue) {
+    if (!varName) return '';
+    if (context) {
+        if (varName === '$index' || varName === '$item.index' || varName === 'index') {
+            return context.$index !== undefined ? context.$index : '';
+        }
+        if (varName.indexOf('$item.') === 0) {
+            var propName = varName.substring(6);
+            if (propName === 'index') {
+                return context.$index !== undefined ? context.$index : '';
+            }
+            if (context.$item && context.$item[propName] !== undefined) {
+                return context.$item[propName];
+            }
+        }
+        if (context.$item && context.$item[varName] !== undefined) {
+            return context.$item[varName];
+        }
+    }
+    if (variables && variables[varName] !== undefined) {
+        return variables[varName];
+    }
+    return fallbackValue;
+}
+
+
+function isElementVisible(el, data, context) {
     if (!el.useShowFx || !el.showFx || el.showFx.trim() === '') return true;
     try {
-        var res = evaluateFx(el.showFx, data);
+        var res = evaluateFx(el.showFx, data, context);
         if (typeof res === 'string' && res.startsWith('Fx Error:')) {
             return true;
         }
@@ -187,10 +216,10 @@ function addElement(type) {
     var el = { id: ++idCounter, x: 20, y: 20 + elements.length * 24, parentId: null, showFx: '', useShowFx: false, isColorFx: false, colorFx: '' };
     switch(type) {
         case 'text':
-            Object.assign(el, { type:'text', text:'New Text', fontSize:13, bold:false, italic:false, align:'left', color:'#000000', width:200, wrap:false, isFx:false, fxExpr:'' });
+            Object.assign(el, { type:'text', text:'New Text', fontSize:null, bold:false, italic:false, align:'left', color:'#000000', width:200, height:null, wrap:false, isFx:false, fxExpr:'', showBorder:false, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, borderWidth:1, borderColor:'#000000', borderStyle:'solid', paddingTop:0, paddingRight:0, paddingBottom:0, paddingLeft:0 });
             break;
         case 'heading':
-            Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572, wrap:false });
+            Object.assign(el, { type:'text', text:'TITLE', fontSize:18, bold:true, italic:false, align:'center', color:'#000000', width:572, height:null, wrap:false, showBorder:false, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, borderWidth:1, borderColor:'#000000', borderStyle:'solid', paddingTop:0, paddingRight:0, paddingBottom:0, paddingLeft:0 });
             el.x = 20;
             break;
         case 'line':
@@ -203,17 +232,21 @@ function addElement(type) {
             Object.assign(el, { type:'shape', shapeType:'rect', width:100, height:50, lineWidth:1, color:'#000000', fillColor:'', radius:0, points:'0,50 50,0 100,50', close:true });
             break;
         case 'table':
-            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:12, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'', colColors:'', headerBolds:'', paddingTop:4, paddingBottom:4, paddingLeft:6, paddingRight:6, borderStyle:'solid' });
+            Object.assign(el, { type:'table', cols:3, rows:2, headers:['Column 1','Column 2','Column 3'], data:[['a','b','c']], widths:'*,*,*', fontSize:null, width:500, borderWidth:1, borderColor:'#000000', showBorder:true, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, showHeader:true, headerAligns:'center,center,center', bodyAligns:'left,left,left', headerBold:true, bold:false, italic:false, color:'#000000', dataVar:'', fieldMappings:'', colFills:'', oddRowFill:'', evenRowFill:'', colColors:'', headerBolds:'', paddingTop:4, paddingBottom:4, paddingLeft:6, paddingRight:6, borderStyle:'solid' });
             break;
         case 'var':
             var key = Object.keys(variables)[0] || 'patient_name';
-            Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
+            Object.assign(el, { type:'var', varName:key, fontSize:null, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, height:null, isFx:false, fxExpr:'', showBorder:false, borderLeft:true, borderTop:true, borderRight:true, borderBottom:true, borderWidth:1, borderColor:'#000000', borderStyle:'solid', paddingTop:0, paddingRight:0, paddingBottom:0, paddingLeft:0 });
             break;
         case 'image':
             Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, rotate:0 });
             break;
         case 'panel':
             Object.assign(el, { type:'panel', width:200, height:150, bgColor:'#ffffff', borderColor:'#ffffff', borderWidth:1 });
+            break;
+        case 'loop':
+            var firstArrayVar = Object.keys(variables).find(function(k) { return Array.isArray(variables[k]); }) || 'medications';
+            Object.assign(el, { type:'loop', width:'100%', height:40, dataVar:firstArrayVar, bgColor:'#ffffff', borderColor:'#89b4fa', borderWidth:1 });
             break;
         case 'pagebreak':
             Object.assign(el, { type:'pagebreak', width:'100%', height:20 });
@@ -266,6 +299,7 @@ function render() {
     paper.style.background = pageConfig.bgColor || '#ffffff';
     var effectiveDefaultFont = getPageEffectiveFont();
     paper.style.fontFamily = effectiveDefaultFont === 'Times New Roman' ? "'Times New Roman', serif" : (effectiveDefaultFont === 'Roboto' ? "'Roboto', sans-serif" : "'" + effectiveDefaultFont + "', sans-serif");
+    paper.style.fontSize = (pageConfig.defaultFontSize || 13) + 'px';
 
     var sizes = { LETTER:[612,792], A4:[595,842], A5:[420,595], LEGAL:[612,1008] };
     var s = sizes[pageConfig.paperSize || 'LETTER'] || sizes.LETTER;
@@ -275,7 +309,18 @@ function render() {
 
     function renderElementDOM(el) {
         var div = document.createElement('div');
-        var isVisible = isElementVisible(el, variables);
+        
+        var context = null;
+        if (el.parentId) {
+            var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+            if (parentEl && parentEl.type === 'loop') {
+                var dataArray = variables[parentEl.dataVar];
+                var firstItem = (dataArray && Array.isArray(dataArray) && dataArray.length > 0) ? dataArray[0] : {};
+                context = { $item: firstItem, $index: 0 };
+            }
+        }
+        
+        var isVisible = isElementVisible(el, variables, context);
         var isSelected = selectedIds.indexOf(el.id) !== -1;
         div.className = 'el el-' + el.type + (isSelected ? ' selected' : '') + (isVisible ? '' : ' hidden-preview');
         div.style.left = el.x + 'px';
@@ -286,7 +331,7 @@ function render() {
 
         switch(el.type) {
             case 'text':
-                div.style.fontSize = el.fontSize + 'px';
+                div.style.fontSize = (el.fontSize || pageConfig.defaultFontSize || 13) + 'px';
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
@@ -294,7 +339,7 @@ function render() {
                 div.style.fontFamily = effectiveFont ? "'" + effectiveFont + "', sans-serif" : "inherit";
                 var textColor = el.color;
                 if (el.isColorFx && el.colorFx) {
-                    var evaluatedColor = evaluateFx(el.colorFx, variables);
+                    var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                     if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                         textColor = evaluatedColor;
                     }
@@ -302,17 +347,44 @@ function render() {
                 div.style.color = textColor || '#000000';
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
                 div.style.width = getParsedWidth(wVal) + 'px';
+                
+                // Height
+                if (el.height !== undefined && el.height !== null && el.height !== '') {
+                    div.style.height = el.height + 'px';
+                } else {
+                    div.style.height = 'auto';
+                }
+                
                 div.style.whiteSpace = el.wrap === false ? 'nowrap' : 'pre-wrap';
+                
+                // Border & Padding
+                if (el.showBorder) {
+                    var bdrW = (el.borderWidth || 1) + 'px';
+                    var bdrS = el.borderStyle || 'solid';
+                    var bdrC = el.borderColor || '#000000';
+                    div.style.borderLeft = el.borderLeft !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderTop = el.borderTop !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderRight = el.borderRight !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderBottom = el.borderBottom !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                } else {
+                    div.style.border = 'none';
+                }
+                div.style.boxSizing = 'border-box';
+                div.style.paddingTop = (el.paddingTop !== undefined ? el.paddingTop : 0) + 'px';
+                div.style.paddingRight = (el.paddingRight !== undefined ? el.paddingRight : 0) + 'px';
+                div.style.paddingBottom = (el.paddingBottom !== undefined ? el.paddingBottom : 0) + 'px';
+                div.style.paddingLeft = (el.paddingLeft !== undefined ? el.paddingLeft : 0) + 'px';
+ 
                 var displayVal = '';
                 if (el.isFx) {
-                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '(Biểu thức Fx)';
+                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '(Biểu thức Fx)';
                 } else {
                     displayVal = el.text;
                 }
                 div.textContent = displayVal;
                 break;
             case 'var':
-                div.style.fontSize = el.fontSize + 'px';
+                div.style.fontSize = (el.fontSize || pageConfig.defaultFontSize || 13) + 'px';
                 div.style.fontWeight = el.bold ? 'bold' : 'normal';
                 div.style.fontStyle = el.italic ? 'italic' : 'normal';
                 div.style.textAlign = el.align;
@@ -320,7 +392,7 @@ function render() {
                 div.style.fontFamily = effectiveFont ? "'" + effectiveFont + "', sans-serif" : "inherit";
                 var textColor = el.color;
                 if (el.isColorFx && el.colorFx) {
-                    var evaluatedColor = evaluateFx(el.colorFx, variables);
+                    var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                     if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                         textColor = evaluatedColor;
                     }
@@ -328,14 +400,42 @@ function render() {
                 div.style.color = textColor || '#000000';
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
                 div.style.width = getParsedWidth(wVal) + 'px';
+                
+                // Height
+                if (el.height !== undefined && el.height !== null && el.height !== '') {
+                    div.style.height = el.height + 'px';
+                } else {
+                    div.style.height = 'auto';
+                }
+                
                 div.style.background = '#e8f4fd';
                 div.style.borderRadius = '3px';
                 div.style.whiteSpace = el.wrap === false ? 'nowrap' : 'pre-wrap';
+                
+                // Border & Padding
+                if (el.showBorder) {
+                    var bdrW = (el.borderWidth || 1) + 'px';
+                    var bdrS = el.borderStyle || 'solid';
+                    var bdrC = el.borderColor || '#000000';
+                    div.style.borderLeft = el.borderLeft !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderTop = el.borderTop !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderRight = el.borderRight !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                    div.style.borderBottom = el.borderBottom !== false ? bdrW + ' ' + bdrS + ' ' + bdrC : 'none';
+                } else {
+                    div.style.border = 'none';
+                }
+                div.style.boxSizing = 'border-box';
+                div.style.paddingTop = (el.paddingTop !== undefined ? el.paddingTop : 0) + 'px';
+                div.style.paddingRight = (el.paddingRight !== undefined ? el.paddingRight : 0) + 'px';
+                div.style.paddingBottom = (el.paddingBottom !== undefined ? el.paddingBottom : 0) + 'px';
+                div.style.paddingLeft = (el.paddingLeft !== undefined ? el.paddingLeft : 0) + 'px';
+
                 var displayVal = '';
                 if (el.isFx) {
-                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '(Biểu thức Fx)';
+                    displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '(Biểu thức Fx)';
                 } else {
-                    displayVal = variables[el.varName] !== undefined ? variables[el.varName] : '{' + el.varName + '}';
+                    var resolved = resolveVariableValue(el.varName, variables, context, undefined);
+                    displayVal = (resolved !== undefined && resolved !== null) ? resolved : '{' + el.varName + '}';
                 }
                 div.textContent = (el.prefix || '') + displayVal;
                 break;
@@ -386,8 +486,11 @@ function render() {
                 break;
             case 'image':
                 var src = el.imageSrc || '';
-                if (el.dataVar && variables[el.dataVar]) {
-                    src = variables[el.dataVar];
+                if (el.dataVar) {
+                    var resolved = resolveVariableValue(el.dataVar, variables, context, undefined);
+                    if (resolved !== undefined && resolved !== null) {
+                        src = resolved;
+                    }
                 }
                 
                 var wVal = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100';
@@ -481,7 +584,7 @@ function render() {
 
                 var effectiveFont = getElementEffectiveFont(el.font);
                 var tblFont = effectiveFont ? 'font-family:\'' + effectiveFont + '\', sans-serif;' : '';
-                var tbl = '<table style="table-layout:fixed;border-collapse:collapse;width:100%;font-size:'+el.fontSize+'px;'+tblFont+tColor+'">';
+                var tbl = '<table style="table-layout:fixed;border-collapse:collapse;width:100%;font-size:'+(el.fontSize || pageConfig.defaultFontSize || 13)+'px;'+tblFont+tColor+'">';
                 var parsedWidths = (el.widths || '').split(',').map(function(w){return w.trim();});
                 tbl += '<colgroup>';
                 el.headers.forEach(function(h, i) {
@@ -538,6 +641,26 @@ function render() {
                 div.style.outlineOffset = '-1px';
                 div.innerHTML = '<span style="position:absolute;top:2px;left:4px;font-size:8px;color:rgba(137,180,250,0.6);pointer-events:none;user-select:none;letter-spacing:0.5px;">PANEL</span>';
                 break;
+            case 'loop':
+                var loopH = el.height || 40;
+                var dataArray = variables[el.dataVar];
+                var count = (dataArray && Array.isArray(dataArray)) ? dataArray.length : 1;
+                if (count < 1) count = 1;
+                var loopW = (el.width !== undefined && el.width !== null) ? el.width.toString() : '100%';
+                div.style.width = getParsedWidth(loopW) + 'px';
+                div.style.height = (count * loopH) + 'px';
+                div.style.background = (el.bgColor && el.bgColor !== 'transparent') ? el.bgColor : 'rgba(0,0,0,0)';
+                div.style.border = (el.showBorder !== false) ? ((el.borderWidth || 1) + 'px dashed ' + (el.borderColor || '#89b4fa')) : '1px dashed #89b4fa';
+                div.style.boxSizing = 'border-box';
+                div.style.outline = '1px dashed rgba(137, 180, 250, 0.45)';
+                div.style.outlineOffset = '-1px';
+                
+                var dividers = '';
+                for (var i = 1; i < count; i++) {
+                    dividers += '<div style="position:absolute; left:0; right:0; top:' + (i * loopH) + 'px; border-top:1px dashed rgba(137, 180, 250, 0.5); pointer-events:none;"></div>';
+                }
+                div.innerHTML = dividers + '<span style="position:absolute;top:2px;left:4px;font-size:8px;color:rgba(137,180,250,0.6);pointer-events:none;user-select:none;letter-spacing:0.5px;">LOOP (' + (el.dataVar || 'None') + ')</span>';
+                break;
             case 'pagebreak':
                 div.style.width = '100%';
                 div.style.height = '20px';
@@ -581,20 +704,20 @@ function render() {
 
     // 1. Render all elements to DOM first (so that their actual heights can be computed by the browser)
     elements.forEach(function(el) {
-        if (el.type === 'panel') {
+        if (el.type === 'panel' || el.type === 'loop') {
             renderElementDOM(el);
         }
     });
 
     elements.forEach(function(el) {
-        if (el.type !== 'panel') {
+        if (el.type !== 'panel' && el.type !== 'loop') {
             renderElementDOM(el);
         }
     });
 
-    // 1.5 Auto-push: shift elements below tables/texts/vars that overlap with actual rendered height
+    // 1.5 Auto-push: shift elements below tables/texts/vars/loops that overlap with actual rendered height
     var pushSources = elements.filter(function(e) {
-        return (e.type === 'table' || e.type === 'text' || e.type === 'var') && !e.parentId && !isOverlayingShape(e);
+        return (e.type === 'table' || e.type === 'text' || e.type === 'var' || e.type === 'loop') && !e.parentId && !isOverlayingShape(e);
     });
     pushSources.sort(function(a, b) { return a.y - b.y; });
     var yOffsets = {}; // el.id -> cumulative offset
@@ -762,11 +885,25 @@ function startDrag(e, id) {
     if (!el) return;
     
     var isCtrl = e && (e.ctrlKey || e.metaKey);
+    var isShift = e && e.shiftKey;
     var shouldDeselectOnMouseUp = false;
     
     // If the clicked element is not part of the current selection, update selection
     if (selectedIds.indexOf(id) === -1) {
-        if (isCtrl) {
+        if (isShift && selectedId !== null) {
+            var outlineElementIds = getOutlineOrderIds();
+            var startIdx = outlineElementIds.indexOf(selectedId);
+            var endIdx = outlineElementIds.indexOf(id);
+            if (startIdx !== -1 && endIdx !== -1) {
+                var min = Math.min(startIdx, endIdx);
+                var max = Math.max(startIdx, endIdx);
+                selectedIds = outlineElementIds.slice(min, max + 1);
+                selectedId = id;
+            } else {
+                selectedIds = [id];
+                selectedId = id;
+            }
+        } else if (isCtrl) {
             selectedIds.push(id);
             selectedId = id;
         } else {
@@ -810,6 +947,27 @@ function startDrag(e, id) {
     document.onmouseup = endDrag;
 }
 function getElementHeight(el, vars) {
+    if (el.type === 'loop') {
+        var loopH = el.height || 40;
+        var activeVars = vars || variables;
+        var dataArray = activeVars[el.dataVar];
+        var count = (dataArray && Array.isArray(dataArray)) ? dataArray.length : 1;
+        return count * loopH;
+    }
+    if (el.type === 'panel') {
+        var h = el.height || 150;
+        var children = elements.filter(function(e) { return e.parentId === el.id; });
+        var activeVars = vars || variables;
+        children.forEach(function(child) {
+            if (!isElementVisible(child, activeVars)) return;
+            var childH = getElementHeight(child, activeVars);
+            var childBottom = (child.y || 0) + childH;
+            if (childBottom > h) {
+                h = childBottom;
+            }
+        });
+        return h;
+    }
     if (el.type === 'shape') {
         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
         return rSize.h;
@@ -824,7 +982,12 @@ function getElementHeight(el, vars) {
     }
     if (el.type === 'rect') return el.rectH || 20;
     if (el.type === 'line') return el.lineWeight || 1;
-    if (el.type === 'text' || el.type === 'var') return Math.ceil((el.fontSize || 13) * 1.15);
+    if (el.type === 'text' || el.type === 'var') {
+        if (el.height !== undefined && el.height !== null && el.height !== '') {
+            return parseFloat(el.height) || 20;
+        }
+        return Math.ceil((el.fontSize || 13) * 1.15);
+    }
     if (el.type === 'table') {
         var displayData = el.data || [];
         var activeVars = vars || variables;
@@ -832,10 +995,10 @@ function getElementHeight(el, vars) {
             displayData = activeVars[el.dataVar];
         }
         var rowsCount = displayData.length + (el.showHeader !== false ? 1 : 0);
-        return rowsCount * (el.fontSize + 8) + 10;
+        var fs = el.fontSize || (pageConfig && pageConfig.defaultFontSize) || 13;
+        return rowsCount * (fs + 8) + 10;
     }
     if (el.type === 'image') return el.height || 100;
-    if (el.type === 'panel') return el.height || 150;
     if (el.type === 'emptyline') return el.height || 20;
     return 20;
 }
@@ -1149,7 +1312,7 @@ function endDrag(e) {
                 dragState.dragElements.forEach(function(itemInfo) {
                     var item = elements.find(function(x) { return x.id === itemInfo.id; });
                     if (!item) return;
-                    if (item.type !== 'panel' && item.type !== 'pagebreak') {
+                    if (item.type !== 'panel' && item.type !== 'loop' && item.type !== 'pagebreak') {
                         var elAbsPos = getElementAbsPos(item);
                         var elW = getElementWidth(item);
                         var elH = getElementHeight(item);
@@ -1157,12 +1320,12 @@ function endDrag(e) {
                         var elCenterY = elAbsPos.y + elH / 2;
                         
                         var containingPanels = elements.filter(function(p) {
-                            if (p.type !== 'panel' || p.id === item.id) return false;
-                            // Do not parent to a panel that is also part of the dragging group to avoid cycles
+                            if ((p.type !== 'panel' && p.type !== 'loop') || p.id === item.id) return false;
+                            // Do not parent to a panel/loop that is also part of the dragging group to avoid cycles
                             if (selectedIds.indexOf(p.id) !== -1) return false;
                             var pAbs = getElementAbsPos(p);
                             var pW = getParsedWidth(p.width) || 200;
-                            var pH = p.height || 150;
+                            var pH = getElementHeight(p);
                             return (elCenterX >= pAbs.x && elCenterX <= pAbs.x + pW &&
                                     elCenterY >= pAbs.y && elCenterY <= pAbs.y + pH);
                         });
@@ -1170,7 +1333,7 @@ function endDrag(e) {
                         var targetParentId = null;
                         if (containingPanels.length > 0) {
                             containingPanels.sort(function(a, b) {
-                                return ((getParsedWidth(a.width)||200) * (a.height||150)) - ((getParsedWidth(b.width)||200) * (b.height||150));
+                                return ((getParsedWidth(a.width)||200) * getElementHeight(a)) - ((getParsedWidth(b.width)||200) * getElementHeight(b));
                             });
                             targetParentId = containingPanels[0].id;
                         }
@@ -1192,12 +1355,48 @@ function endDrag(e) {
 }
 
 // ============================================================
+function getOutlineOrderIds() {
+    var orderIds = [];
+    function traverse(el) {
+        orderIds.push(el.id);
+        if (el.type === 'panel' || el.type === 'loop') {
+            var children = elements.filter(function(child) { return child.parentId === el.id; }).reverse();
+            children.forEach(traverse);
+        }
+    }
+    var topLevel = elements.filter(function(el) {
+        if (!el.parentId) return true;
+        var parentExists = elements.some(function(item) { return item.id === el.parentId; });
+        return !parentExists;
+    });
+    var topLevelNonPanels = topLevel.filter(function(el) { return el.type !== 'panel' && el.type !== 'loop'; }).reverse();
+    var topLevelPanels = topLevel.filter(function(el) { return el.type === 'panel' || el.type === 'loop'; }).reverse();
+    var sortedTopLevel = topLevelNonPanels.concat(topLevelPanels);
+    
+    sortedTopLevel.forEach(traverse);
+    return orderIds;
+}
+
 // SELECT / DESELECT
 // ============================================================
 function selectElement(id, event) {
     blurActivePropertyInput();
     var isCtrl = event && (event.ctrlKey || event.metaKey);
-    if (isCtrl) {
+    var isShift = event && event.shiftKey;
+    if (isShift && selectedId !== null) {
+        var outlineElementIds = getOutlineOrderIds();
+        var startIdx = outlineElementIds.indexOf(selectedId);
+        var endIdx = outlineElementIds.indexOf(id);
+        if (startIdx !== -1 && endIdx !== -1) {
+            var min = Math.min(startIdx, endIdx);
+            var max = Math.max(startIdx, endIdx);
+            selectedIds = outlineElementIds.slice(min, max + 1);
+            selectedId = id;
+        } else {
+            selectedIds = [id];
+            selectedId = id;
+        }
+    } else if (isCtrl) {
         var idx = selectedIds.indexOf(id);
         if (idx !== -1) {
             selectedIds.splice(idx, 1);
@@ -1303,6 +1502,10 @@ function renderProps() {
             });
         }
         pageHtml += '</select></div>';
+        
+        // Default font size
+        pageHtml += '<div class="prop-row"><label>Default size</label><input type="number" min="6" max="72" value="'+(pageConfig.defaultFontSize||13)+'" onchange="setPageConfig(\'defaultFontSize\',+this.value);render();"></div>';
+        pageHtml += '<div class="prop-row" style="margin-top:-4px; margin-bottom:8px; padding-left:74px;"><button style="width:100%; padding:3px 6px; font-size:10px; background:#313244; color:#89b4fa; border:1px solid #45475a; border-radius:4px; cursor:pointer;" onclick="clearAllElementFontSizes()">Reset all font sizes to default</button></div>';
         var activeFont = pageConfig.defaultFont || 'Roboto';
         if (activeFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeFont])) {
             pageHtml += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong phần "Custom Fonts" bên dưới.</div>';
@@ -1342,11 +1545,20 @@ function renderProps() {
     if (!el) return;
     panel.setAttribute('data-el-id', el.id);
     var h = '';
+    if (el.parentId) {
+        var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+        if (parentEl && parentEl.type === 'loop') {
+            h += '<div style="background: rgba(137, 180, 250, 0.12); border: 1px solid rgba(137, 180, 250, 0.4); padding: 8px 10px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #cdd6f4; line-height: 1.45; word-break: break-word;">';
+            h += '💡 <b>Element này nằm trong Loop #' + parentEl.id + ':</b><br>';
+            h += 'Có thể truy cập các thuộc tính của dòng hiện tại thông qua <code>$item.tên_thuộc_tính</code> (ví dụ: <code>$item.ten</code>) hoặc lấy số thứ tự bằng <code>$index</code>.';
+            h += '</div>';
+        }
+    }
     h += '<div class="prop-row"><label>Type</label><input disabled value="'+el.type+'"></div>';
     h += '<div class="prop-row"><label>Layer name</label><input type="text" value="'+(el.customName||'')+'" onchange="setProp(\'customName\',this.value)" placeholder="Layer name..."></div>';
     
     // Group X and Y into a single Position row
-    if (el.type !== 'pagebreak' && el.type !== 'emptyline') {
+    if (el.type !== 'pagebreak' && (el.type !== 'emptyline' || el.parentId)) {
         h += '<div class="prop-row"><label>Position</label>' +
              '<div style="display:flex; gap:4px; flex:1; min-width:0;">' +
              '<input type="number" value="'+el.x+'" onchange="setProp(\'x\',+this.value)" style="min-width:0; flex:1;">' +
@@ -1358,7 +1570,7 @@ function renderProps() {
              '</div>';
     }
 
-    if (el.type !== 'pagebreak' && el.type !== 'emptyline') {
+    if (el.type !== 'pagebreak' && (el.type !== 'emptyline' || el.parentId)) {
         var useShowFx = !!el.useShowFx;
         h += '<div class="prop-row"><label>Visibility (Fx)</label>' +
              '<div style="display:flex; align-items:center; gap:6px; flex:1;">' +
@@ -1371,12 +1583,14 @@ function renderProps() {
         }
     }
     
-    if (el.type !== 'panel' && el.type !== 'pagebreak' && el.type !== 'emptyline') {
+    if (el.type !== 'panel' && el.type !== 'loop' && el.type !== 'pagebreak') {
         h += '<div class="prop-row"><label>Group</label><select onchange="changeElementParent('+el.id+', this.value)">';
         h += '<option value="" ' + (!el.parentId ? 'selected' : '') + '>-- No Group --</option>';
         elements.forEach(function(item) {
             if (item.type === 'panel') {
                 h += '<option value="' + item.id + '" ' + (el.parentId === item.id ? 'selected' : '') + '>Panel #' + item.id + '</option>';
+            } else if (item.type === 'loop') {
+                h += '<option value="' + item.id + '" ' + (el.parentId === item.id ? 'selected' : '') + '>Loop #' + item.id + '</option>';
             }
         });
         h += '</select></div>';
@@ -1411,8 +1625,10 @@ function renderProps() {
         if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
             h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
         }
-        h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
+        var elFontSize = el.fontSize !== undefined && el.fontSize !== null ? el.fontSize : '';
+        h += '<div class="prop-row"><label>Font size</label><input type="number" placeholder="'+(pageConfig.defaultFontSize||13)+'" value="'+elFontSize+'" onchange="setProp(\'fontSize\',this.value===\'\'?null:+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Height</label><input type="text" placeholder="Auto" value="'+(el.height!==undefined&&el.height!==null?el.height:'')+'" onchange="setProp(\'height\',this.value===\'\'?null:isNaN(this.value)?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Align</label><select onchange="setProp(\'align\',this.value)"><option '+(el.align==='left'?'selected':'')+'>left</option><option '+(el.align==='center'?'selected':'')+'>center</option><option '+(el.align==='right'?'selected':'')+'>right</option></select></div>';
@@ -1430,6 +1646,32 @@ function renderProps() {
         }
         var isWrap = el.wrap !== false;
         h += '<div class="prop-row"><label>Auto wrap</label><input type="checkbox" '+(isWrap?'checked':'')+' onchange="setProp(\'wrap\',this.checked)"></div>';
+        
+        var showBorder = el.showBorder === true;
+        h += '<div class="prop-row"><label>Show border</label><input type="checkbox" '+(showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
+        if (showBorder) {
+            h += '<div class="prop-row"><label>Border Sides</label>';
+            h += '<div style="display:flex; gap:12px; align-items:center; flex:1;">';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderLeft!==false?'checked':'')+' onchange="setProp(\'borderLeft\',this.checked)">L</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderTop!==false?'checked':'')+' onchange="setProp(\'borderTop\',this.checked)">T</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderRight!==false?'checked':'')+' onchange="setProp(\'borderRight\',this.checked)">R</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderBottom!==false?'checked':'')+' onchange="setProp(\'borderBottom\',this.checked)">B</label>';
+            h += '</div></div>';
+            h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+            h += '<div class="prop-row"><label>Border style</label><select onchange="setProp(\'borderStyle\',this.value)">';
+            h += '<option '+(el.borderStyle==='solid'||!el.borderStyle?'selected':'')+' value="solid">Solid (Nét liền)</option>';
+            h += '<option '+(el.borderStyle==='dashed'?'selected':'')+' value="dashed">Dashed (Nét đứt)</option>';
+            h += '<option '+(el.borderStyle==='dotted'?'selected':'')+' value="dotted">Dotted (Chấm tròn)</option>';
+            h += '</select></div>';
+            h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
+        }
+        h += '<div class="prop-row"><label>Padding</label>';
+        h += '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:4px; flex:1;">';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Top</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingTop!==undefined?el.paddingTop:0)+'" onchange="setProp(\'paddingTop\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Right</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingRight!==undefined?el.paddingRight:0)+'" onchange="setProp(\'paddingRight\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Bottom</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingBottom!==undefined?el.paddingBottom:0)+'" onchange="setProp(\'paddingBottom\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Left</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingLeft!==undefined?el.paddingLeft:0)+'" onchange="setProp(\'paddingLeft\',+this.value)"></div>';
+        h += '</div></div>';
     }
     if (el.type === 'var') {
         var isFx = !!el.isFx;
@@ -1444,9 +1686,34 @@ function renderProps() {
                 h += '<div class="prop-row" style="color:#a6adc8; font-size:11px; padding-left:74px; margin-top:-4px; line-height:1.3; font-family:monospace; word-break:break-all;">Fx: ' + exprPreview + '</div>';
             }
         } else {
-            h += '<div class="prop-row"><label>Variable</label><select onchange="setProp(\'varName\',this.value)">';
-            Object.keys(variables).forEach(function(k) { h += '<option '+(el.varName===k?'selected':'')+' value="'+k+'">'+k+'</option>'; });
-            h += '</select></div>';
+            h += '<div class="prop-row"><label>Variable</label>';
+            h += '<input list="varDatalist" value="'+(el.varName||'')+'" onchange="setProp(\'varName\',this.value)" style="flex:1;" placeholder="Enter variable...">';
+            h += '<datalist id="varDatalist">';
+            Object.keys(variables).forEach(function(k) { h += '<option value="'+k+'">'; });
+            if (el.parentId) {
+                var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+                if (parentEl && parentEl.type === 'loop') {
+                    h += '<option value="$index">';
+                    h += '<option value="$item.index">';
+                    if (parentEl.dataVar && variables[parentEl.dataVar] && Array.isArray(variables[parentEl.dataVar])) {
+                        var firstItem = variables[parentEl.dataVar][0];
+                        if (firstItem && typeof firstItem === 'object') {
+                            Object.keys(firstItem).forEach(function(k) {
+                                h += '<option value="$item.' + k + '">';
+                            });
+                        }
+                    }
+                }
+            }
+            h += '</datalist></div>';
+            if (el.parentId) {
+                var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+                if (parentEl && parentEl.type === 'loop') {
+                    h += '<div class="prop-row" style="margin-top:-6px; margin-bottom:6px; padding-left:74px; font-size:11px; color:#a6adc8; line-height:1.3;">';
+                    h += '💡 Element trong loop có thể dùng <code>$item.ten_thuoc_tinh</code> hoặc <code>$index</code>.';
+                    h += '</div>';
+                }
+            }
         }
         h += '<div class="prop-row"><label>Prefix</label><input value="'+(el.prefix||'')+'" onchange="setProp(\'prefix\',this.value)"></div>';
         h += '<div class="prop-row"><label>Font family</label><select onchange="setProp(\'font\',this.value)">';
@@ -1463,8 +1730,10 @@ function renderProps() {
         if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
             h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
         }
-        h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
+        var elFontSize = el.fontSize !== undefined && el.fontSize !== null ? el.fontSize : '';
+        h += '<div class="prop-row"><label>Font size</label><input type="number" placeholder="'+(pageConfig.defaultFontSize||13)+'" value="'+elFontSize+'" onchange="setProp(\'fontSize\',this.value===\'\'?null:+this.value)"></div>';
         h += '<div class="prop-row"><label>Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Height</label><input type="text" placeholder="Auto" value="'+(el.height!==undefined&&el.height!==null?el.height:'')+'" onchange="setProp(\'height\',this.value===\'\'?null:isNaN(this.value)?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Align</label><select onchange="setProp(\'align\',this.value)"><option '+(el.align==='left'?'selected':'')+'>left</option><option '+(el.align==='center'?'selected':'')+'>center</option><option '+(el.align==='right'?'selected':'')+'>right</option></select></div>';
@@ -1482,6 +1751,32 @@ function renderProps() {
         }
         var isWrap = el.wrap !== false;
         h += '<div class="prop-row"><label>Auto wrap</label><input type="checkbox" '+(isWrap?'checked':'')+' onchange="setProp(\'wrap\',this.checked)"></div>';
+        
+        var showBorder = el.showBorder === true;
+        h += '<div class="prop-row"><label>Show border</label><input type="checkbox" '+(showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
+        if (showBorder) {
+            h += '<div class="prop-row"><label>Border Sides</label>';
+            h += '<div style="display:flex; gap:12px; align-items:center; flex:1;">';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderLeft!==false?'checked':'')+' onchange="setProp(\'borderLeft\',this.checked)">L</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderTop!==false?'checked':'')+' onchange="setProp(\'borderTop\',this.checked)">T</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderRight!==false?'checked':'')+' onchange="setProp(\'borderRight\',this.checked)">R</label>';
+            h += '<label style="font-size:11px; color:#a6adc8; display:inline-flex; align-items:center; gap:3px; margin:0; width:auto !important; flex:none;"><input type="checkbox" '+(el.borderBottom!==false?'checked':'')+' onchange="setProp(\'borderBottom\',this.checked)">B</label>';
+            h += '</div></div>';
+            h += '<div class="prop-row"><label>Border width</label><input type="number" step="0.5" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+            h += '<div class="prop-row"><label>Border style</label><select onchange="setProp(\'borderStyle\',this.value)">';
+            h += '<option '+(el.borderStyle==='solid'||!el.borderStyle?'selected':'')+' value="solid">Solid (Nét liền)</option>';
+            h += '<option '+(el.borderStyle==='dashed'?'selected':'')+' value="dashed">Dashed (Nét đứt)</option>';
+            h += '<option '+(el.borderStyle==='dotted'?'selected':'')+' value="dotted">Dotted (Chấm tròn)</option>';
+            h += '</select></div>';
+            h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#000000')+'" onchange="setProp(\'borderColor\',this.value)"></div>';
+        }
+        h += '<div class="prop-row"><label>Padding</label>';
+        h += '<div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:4px; flex:1;">';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Top</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingTop!==undefined?el.paddingTop:0)+'" onchange="setProp(\'paddingTop\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Right</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingRight!==undefined?el.paddingRight:0)+'" onchange="setProp(\'paddingRight\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Bottom</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingBottom!==undefined?el.paddingBottom:0)+'" onchange="setProp(\'paddingBottom\',+this.value)"></div>';
+        h += '<div style="display:flex; flex-direction:column; align-items:center;"><span style="font-size:9px; color:#a6adc8;">Left</span><input type="number" style="width:100%; text-align:center; padding:2px; font-size:11px; background:#1e1e2e; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;" min="0" value="'+(el.paddingLeft!==undefined?el.paddingLeft:0)+'" onchange="setProp(\'paddingLeft\',+this.value)"></div>';
+        h += '</div></div>';
     }
     if (el.type === 'line') {
         h += '<div class="prop-row"><label>Length</label><input type="number" value="'+el.lineWidth+'" onchange="setProp(\'lineWidth\',+this.value)"></div>';
@@ -1527,13 +1822,38 @@ function renderProps() {
         }
     }
     if (el.type === 'image') {
-        h += '<div class="prop-row"><label>Bind variable</label><select onchange="setProp(\'dataVar\',this.value)"><option value="">-- None --</option>';
+        h += '<div class="prop-row"><label>Bind variable</label>';
+        h += '<input list="imgVarDatalist" value="'+(el.dataVar||'')+'" onchange="setProp(\'dataVar\',this.value)" style="flex:1;" placeholder="-- None / Enter custom --">';
+        h += '<datalist id="imgVarDatalist">';
         Object.keys(variables).forEach(function(k) {
             if (isImageVal(variables[k])) {
-                h += '<option '+(el.dataVar===k?'selected':'')+' value="'+k+'">'+k+'</option>';
+                h += '<option value="'+k+'">';
             }
         });
-        h += '</select></div>';
+        if (el.parentId) {
+            var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+            if (parentEl && parentEl.type === 'loop') {
+                h += '<option value="$index">';
+                h += '<option value="$item.index">';
+                if (parentEl.dataVar && variables[parentEl.dataVar] && Array.isArray(variables[parentEl.dataVar])) {
+                    var firstItem = variables[parentEl.dataVar][0];
+                    if (firstItem && typeof firstItem === 'object') {
+                        Object.keys(firstItem).forEach(function(k) {
+                            h += '<option value="$item.' + k + '">';
+                        });
+                    }
+                }
+            }
+        }
+        h += '</datalist></div>';
+        if (el.parentId) {
+            var parentEl = elements.find(function(e) { return e.id === el.parentId; });
+            if (parentEl && parentEl.type === 'loop') {
+                h += '<div class="prop-row" style="margin-top:-6px; margin-bottom:6px; padding-left:74px; font-size:11px; color:#a6adc8; line-height:1.3;">';
+                h += '💡 Element trong loop có thể dùng <code>$item.ten_thuoc_tinh</code> hoặc <code>$index</code>.';
+                h += '</div>';
+            }
+        }
         
         var isVarBound = !!el.dataVar;
         h += '<div class="prop-row"><label>Image source</label><input type="text" value="'+(isVarBound ? 'From variable: ' + el.dataVar : (el.imageSrc.startsWith('data:') ? 'Embedded Base64 Image' : el.imageSrc))+'" ' + (isVarBound || el.imageSrc.startsWith('data:') ? 'disabled' : '') + ' onchange="setProp(\'imageSrc\',this.value)" placeholder="Enter image URL..."></div>';
@@ -1580,7 +1900,8 @@ function renderProps() {
         if (activeElFont && activeElFont !== 'Roboto' && (typeof pdfMake === 'undefined' || !pdfMake.fonts || !pdfMake.fonts[activeElFont])) {
             h += '<div style="color:#f38ba8; font-size:11px; margin-top:-6px; margin-bottom:8px; padding-left:74px; line-height:1.3;">⚠️ Font này chưa được tải tệp .ttf lên. PDF sẽ tự động chuyển về Roboto. Vui lòng thêm font trong cài đặt Trang.</div>';
         }
-        h += '<div class="prop-row"><label>Font size</label><input type="number" value="'+el.fontSize+'" onchange="setProp(\'fontSize\',+this.value)"></div>';
+        var elFontSize = el.fontSize !== undefined && el.fontSize !== null ? el.fontSize : '';
+        h += '<div class="prop-row"><label>Font size</label><input type="number" placeholder="'+(pageConfig.defaultFontSize||13)+'" value="'+elFontSize+'" onchange="setProp(\'fontSize\',this.value===\'\'?null:+this.value)"></div>';
         h += '<div class="prop-row"><label>Table Width</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Body Bold</label><input type="checkbox" '+(el.bold?'checked':'')+' onchange="setProp(\'bold\',this.checked)"></div>';
         h += '<div class="prop-row"><label>Body Italic</label><input type="checkbox" '+(el.italic?'checked':'')+' onchange="setProp(\'italic\',this.checked)"></div>';
@@ -1627,7 +1948,29 @@ function renderProps() {
             h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Clear</button></div>';
         }
     }
+    if (el.type === 'loop') {
+        h += '<div class="prop-row"><label>Width (W)</label><input type="text" value="'+el.width+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
+        h += '<div class="prop-row"><label>Row height</label><input type="number" value="'+el.height+'" onchange="setProp(\'height\',+this.value)"></div>';
+        h += '<div class="prop-row"><label>Array Var</label><select onchange="setProp(\'dataVar\',this.value)">';
+        h += '<option value="">-- Select Array Var --</option>';
+        Object.keys(variables).forEach(function(k) {
+            if (Array.isArray(variables[k])) {
+                h += '<option '+(el.dataVar===k?'selected':'')+' value="'+k+'">'+k+'</option>';
+            }
+        });
+        h += '</select></div>';
+        h += '<div class="prop-row"><label>Bg color</label><input type="color" value="'+((el.bgColor && el.bgColor.startsWith('#')) ? el.bgColor : '#ffffff')+'" onchange="setProp(\'bgColor\',this.value)">';
+        h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'bgColor\',\'transparent\')">Clear</button></div>';
+        var showBorder = el.showBorder !== false;
+        h += '<div class="prop-row"><label>Show border</label><input type="checkbox" '+(showBorder?'checked':'')+' onchange="setProp(\'showBorder\',this.checked)"></div>';
+        if (showBorder) {
+            h += '<div class="prop-row"><label>Border width</label><input type="number" value="'+(el.borderWidth||1)+'" onchange="setProp(\'borderWidth\',+this.value)"></div>';
+            h += '<div class="prop-row"><label>Border color</label><input type="color" value="'+((el.borderColor && el.borderColor.startsWith('#')) ? el.borderColor : '#cbd5e1')+'" onchange="setProp(\'borderColor\',this.value)">';
+            h += '<button style="width:auto;margin:0 0 0 4px;padding:3px 6px;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:4px;cursor:pointer;" onclick="setProp(\'borderColor\',\'transparent\')">Clear</button></div>';
+        }
+    }
     if (el.type === 'emptyline') {
+        h += '<div class="prop-row"><label>Width</label><input type="text" value="'+(el.width !== undefined && el.width !== null ? el.width : '100%')+'" onchange="setProp(\'width\',isNaN(this.value)||this.value.trim()===\'\'?this.value:+this.value)"></div>';
         h += '<div class="prop-row"><label>Height (px)</label><input type="number" value="'+(el.height||20)+'" onchange="setProp(\'height\',+this.value)"></div>';
     }
     
@@ -1728,6 +2071,17 @@ function setPageConfig(k, v) {
     render();
 }
 
+function clearAllElementFontSizes() {
+    saveUndo();
+    elements.forEach(function(el) {
+        if (el.type === 'text' || el.type === 'var' || el.type === 'table') {
+            el.fontSize = null;
+        }
+    });
+    render();
+    renderProps();
+}
+
 function uploadImage(e) {
     var file = e.target.files[0];
     if (!file) return;
@@ -1766,11 +2120,11 @@ function renderOutline() {
         var isVisible = isElementVisible(el, variables);
         var opacityStyle = isVisible ? '' : ' opacity: 0.65;';
         
-        html += '<div class="outline-item' + (isSelected ? ' selected' : '') + '" style="cursor:pointer;' + indentStyle + opacityStyle + '" onclick="selectElement(' + el.id + ', event)">';
+        html += '<div class="outline-item' + (isSelected ? ' selected' : '') + '" style="cursor:pointer;' + indentStyle + opacityStyle + '" onclick="selectElement(' + el.id + ', event)" ondblclick="viewElementJSON(' + el.id + ', event)" draggable="true" ondragstart="outlineDragStart(event, ' + el.id + ')" ondragover="outlineDragOver(event, ' + el.id + ')" ondragleave="outlineDragLeave(event)" ondrop="outlineDrop(event, ' + el.id + ')">';
         html += '<div class="el-info">';
         html += indentPrefix;
         html += '<span class="el-type-badge">' + typeStr.toUpperCase() + '</span>';
-        html += '<span ondblclick="renameElementOutline(' + el.id + ', event)" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px; font-size:11px;" title="Double click to rename: ' + label + '">' + label + '</span>';
+        html += '<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px; font-size:11px;" title="' + label + '">' + label + '</span>';
         html += '</div>';
         html += '<div class="actions" onclick="event.stopPropagation();">';
         html += '<span onclick="renameElementOutline(' + el.id + ', event)" style="cursor:pointer; color:#89b4fa; display:inline-flex; align-items:center;" title="Rename layer"><svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></span>';
@@ -1780,7 +2134,7 @@ function renderOutline() {
         html += '</div>';
         html += '</div>';
         
-        if (el.type === 'panel') {
+        if (el.type === 'panel' || el.type === 'loop') {
             var children = elements.filter(function(child) { return child.parentId === el.id; }).reverse();
             children.forEach(function(child) {
                 renderElementOutlineItem(child, depth + 1);
@@ -1794,8 +2148,8 @@ function renderOutline() {
         return !parentExists;
     });
     
-    var topLevelNonPanels = topLevel.filter(function(el) { return el.type !== 'panel'; }).reverse();
-    var topLevelPanels = topLevel.filter(function(el) { return el.type === 'panel'; }).reverse();
+    var topLevelNonPanels = topLevel.filter(function(el) { return el.type !== 'panel' && el.type !== 'loop'; }).reverse();
+    var topLevelPanels = topLevel.filter(function(el) { return el.type === 'panel' || el.type === 'loop'; }).reverse();
     var sortedTopLevel = topLevelNonPanels.concat(topLevelPanels);
     
     sortedTopLevel.forEach(function(el) {
@@ -1803,6 +2157,105 @@ function renderOutline() {
     });
     
     outline.innerHTML = html;
+    
+    // Auto-scroll selected element outline item into view
+    if (selectedId !== null) {
+        var selectedItem = outline.querySelector('.outline-item.selected');
+        if (selectedItem) {
+            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+}
+
+var draggedElementId = null;
+
+function outlineDragStart(e, id) {
+    draggedElementId = id;
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function outlineDragOver(e, id) {
+    e.preventDefault();
+    if (draggedElementId === id) return;
+    
+    var target = e.currentTarget;
+    if (!target) return;
+    
+    var rect = target.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var isTopHalf = y < rect.height / 2;
+    
+    if (isTopHalf) {
+        target.classList.add('drag-insert-top');
+        target.classList.remove('drag-insert-bottom');
+    } else {
+        target.classList.add('drag-insert-bottom');
+        target.classList.remove('drag-insert-top');
+    }
+}
+
+function outlineDragLeave(e) {
+    var target = e.currentTarget;
+    if (target) {
+        target.classList.remove('drag-insert-top');
+        target.classList.remove('drag-insert-bottom');
+    }
+}
+
+function outlineDrop(e, targetId) {
+    e.preventDefault();
+    var target = e.currentTarget;
+    var isTopHalf = true;
+    
+    if (target) {
+        var rect = target.getBoundingClientRect();
+        var y = e.clientY - rect.top;
+        isTopHalf = y < rect.height / 2;
+        
+        target.classList.remove('drag-insert-top');
+        target.classList.remove('drag-insert-bottom');
+    }
+    
+    if (draggedElementId !== null && draggedElementId !== targetId) {
+        moveElementToTarget(draggedElementId, targetId, isTopHalf);
+    }
+    draggedElementId = null;
+}
+
+function moveElementToTarget(draggedId, targetId, isTopHalf) {
+    if (draggedId === targetId) return;
+    
+    var draggedIdx = elements.findIndex(function(e) { return e.id === draggedId; });
+    var targetIdx = elements.findIndex(function(e) { return e.id === targetId; });
+    if (draggedIdx < 0 || targetIdx < 0) return;
+    
+    var draggedEl = elements[draggedIdx];
+    var targetEl = elements[targetIdx];
+    
+    // Prevent nesting panels/loops
+    if ((targetEl.type === 'panel' || targetEl.type === 'loop') && draggedEl.id !== targetEl.id && draggedEl.type !== 'panel' && draggedEl.type !== 'loop') {
+        draggedEl.parentId = targetEl.id;
+    } else {
+        draggedEl.parentId = targetEl.parentId;
+    }
+    
+    // Remove element from its current position
+    elements.splice(draggedIdx, 1);
+    
+    // Find target index in the modified array
+    var newTargetIdx = elements.findIndex(function(e) { return e.id === targetId; });
+    
+    // Insert dragged element before or after target element
+    if (isTopHalf) {
+        elements.splice(newTargetIdx, 0, draggedEl);
+    } else {
+        elements.splice(newTargetIdx + 1, 0, draggedEl);
+    }
+    
+    render();
+    renderProps();
+    renderOutline();
 }
 
 function renameElementOutline(id, event) {
@@ -1844,6 +2297,8 @@ function getElementOutlineLabel(el) {
             return 'Table (' + el.headers.length + ' cols)';
         case 'panel':
             return 'Panel #' + el.id;
+        case 'loop':
+            return 'Loop #' + el.id + (el.dataVar ? ' (' + el.dataVar + ')' : '');
         case 'pagebreak':
             return 'Page Break (Y: ' + el.y + ')';
         case 'emptyline':
@@ -1895,7 +2350,7 @@ function addVarElement(key) {
     if (isImg) {
         Object.assign(el, { type:'image', imageSrc:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAADFLCArAAAAA1BMVEUzMzMrj16bAAAAR0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3wA7gAAB6PpYEwAAAABJRU5ErkJggg==', width:100, height:100, dataVar:key, rotate:0 });
     } else {
-        Object.assign(el, { type:'var', varName:key, fontSize:13, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
+        Object.assign(el, { type:'var', varName:key, fontSize:null, bold:false, italic:false, align:'left', color:'#000000', prefix:'', width:200, isFx:false, fxExpr:'' });
     }
     elements.push(el);
     selectElement(el.id);
@@ -2105,7 +2560,7 @@ function getElementWidth(el) {
         }
         return getParsedWidth(el.width) || 500;
     }
-    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel') {
+    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel' || el.type === 'emptyline' || el.type === 'loop') {
         var w = getParsedWidth(el.width) || 100;
         return (el.type === 'text' || el.type === 'var') ? Math.max(20, w) : w;
     }
@@ -2118,37 +2573,111 @@ function getElementWidth(el) {
     return 100;
 }
 
-function elementToNode(el, imagesDict) {
+function wrapNodeWithBorder(node, el) {
+    var hasPadding = (parseFloat(el.paddingTop) || parseFloat(el.paddingRight) || parseFloat(el.paddingBottom) || parseFloat(el.paddingLeft));
+    var hasHeight = (el.height !== undefined && el.height !== null && el.height !== '');
+    if (!el.showBorder && !hasPadding && !hasHeight) return node;
+    
+    var bdrW = el.showBorder ? (parseFloat(el.borderWidth) || 1) : 0;
+    var bdrStyle = el.borderStyle || 'solid';
+    var bdrC = el.borderColor || '#000000';
+    
+    var tblLayout = {
+        hLineWidth: function(i) {
+            if (!el.showBorder) return 0;
+            if (i === 0) return (el.borderTop !== false) ? bdrW : 0;
+            if (i === 1) return (el.borderBottom !== false) ? bdrW : 0;
+            return 0;
+        },
+        vLineWidth: function(i) {
+            if (!el.showBorder) return 0;
+            if (i === 0) return (el.borderLeft !== false) ? bdrW : 0;
+            if (i === 1) return (el.borderRight !== false) ? bdrW : 0;
+            return 0;
+        },
+        hLineColor: function() { return bdrC; },
+        vLineColor: function() { return bdrC; },
+        hLineStyle: function() {
+            if (bdrStyle === 'solid') return null;
+            if (bdrStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+            if (bdrStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+            return null;
+        },
+        vLineStyle: function() {
+            if (bdrStyle === 'solid') return null;
+            if (bdrStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+            if (bdrStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+            return null;
+        },
+        paddingLeft: function() { return parseFloat(el.paddingLeft) || 0; },
+        paddingRight: function() { return parseFloat(el.paddingRight) || 0; },
+        paddingTop: function() { return parseFloat(el.paddingTop) || 0; },
+        paddingBottom: function() { return parseFloat(el.paddingBottom) || 0; }
+    };
+    
+    var w = getParsedWidth(el.width);
+    var borderLeftW = (el.showBorder && el.borderLeft !== false) ? bdrW : 0;
+    var borderRightW = (el.showBorder && el.borderRight !== false) ? bdrW : 0;
+    var insideW = w - borderLeftW - borderRightW - (parseFloat(el.paddingLeft) || 0) - (parseFloat(el.paddingRight) || 0);
+    
+    var cell = Object.assign({}, node);
+    
+    var tbl = {
+        table: {
+            widths: [Math.max(1, insideW)],
+            body: [
+                [
+                    cell
+                ]
+            ]
+        },
+        layout: tblLayout
+    };
+    
+    if (hasHeight) {
+        var borderTopW = (el.showBorder && el.borderTop !== false) ? bdrW : 0;
+        var borderBottomW = (el.showBorder && el.borderBottom !== false) ? bdrW : 0;
+        var insideH = parseFloat(el.height) - borderTopW - borderBottomW;
+        tbl.table.heights = [Math.max(1, insideH)];
+    }
+    
+    return tbl;
+}
+
+function elementToNode(el, imagesDict, context) {
     switch(el.type) {
         case 'text':
             var displayText = el.text;
             if (el.isFx) {
-                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '';
             }
             var textColor = el.color;
             if (el.isColorFx && el.colorFx) {
-                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                 if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            var textNode = { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize || undefined, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            return wrapNodeWithBorder(textNode, el);
         case 'var':
             var displayVal = '';
             if (el.isFx) {
-                displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+                displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '';
             } else {
-                displayVal = variables[el.varName] !== undefined ? variables[el.varName] : '';
+                var resolved = resolveVariableValue(el.varName, variables, context, undefined);
+                displayVal = (resolved !== undefined && resolved !== null) ? resolved : '';
             }
             var val = (el.prefix||'') + displayVal;
             var textColor = el.color || '#000000';
             if (el.isColorFx && el.colorFx) {
-                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                 if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: parseHtmlToPdfText(val), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            var varNode = { text: parseHtmlToPdfText(val), fontSize: el.fontSize || undefined, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            return wrapNodeWithBorder(varNode, el);
         case 'line':
             return { canvas: [{ type:'line', x1:0, y1:0, x2:el.lineWidth, y2:0, lineWidth:el.lineWeight, lineColor:el.color }] };
         case 'emptyline':
@@ -2260,6 +2789,20 @@ function elementToNode(el, imagesDict) {
                     };
                 }));
             });
+            if (body.length === 0) {
+                var dummyRow = [];
+                for (var i = 0; i < widths.length; i++) {
+                    dummyRow.push({
+                        text: '',
+                        alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
+                        bold: el.bold || false,
+                        italics: el.italic || false,
+                        fillColor: undefined,
+                        border: cellBorder
+                    });
+                }
+                body.push(dummyRow);
+            }
             var tblLayout = {
                 hLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
                 vLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
@@ -2290,12 +2833,15 @@ function elementToNode(el, imagesDict) {
                     return (el.paddingBottom !== undefined && el.paddingBottom !== '') ? parseFloat(el.paddingBottom) : 4;
                 }
             };
-            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
+            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize || undefined, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {
                 var src = el.imageSrc;
-                if (el.dataVar && variables[el.dataVar]) {
-                    src = variables[el.dataVar];
+                if (el.dataVar) {
+                    var resolved = resolveVariableValue(el.dataVar, variables, context, undefined);
+                    if (resolved !== undefined && resolved !== null) {
+                        src = resolved;
+                    }
                 }
                 var imgW = getParsedWidth(el.width);
                 var imgH = el.height || 100;
@@ -2344,8 +2890,8 @@ function elementToNode(el, imagesDict) {
             var children = elements.filter(function(e) { return e.parentId === el.id; });
             var childrenLayout = [];
             children.forEach(function(child) {
-                if (!isElementVisible(child, variables)) return;
-                var node = elementToNode(child, imagesDict);
+                if (!isElementVisible(child, variables, context)) return;
+                var node = elementToNode(child, imagesDict, context);
                 if (node) {
                     var x = child.x || 0;
                     var y = child.y || 0;
@@ -2393,6 +2939,72 @@ function elementToNode(el, imagesDict) {
                     {
                         stack: childrenLayout,
                         margin: [0, -el.height, 0, 0]
+                    }
+                ]
+            };
+        case 'loop':
+            var children = elements.filter(function(e) { return e.parentId === el.id; });
+            var dataArray = variables[el.dataVar];
+            if (!dataArray || !Array.isArray(dataArray)) {
+                dataArray = [{}];
+            }
+            var loopH = parseFloat(el.height) || 40;
+            var childrenLayout = [];
+            dataArray.forEach(function(item, index) {
+                var loopContext = { $item: item, $index: index };
+                children.forEach(function(child) {
+                    if (!isElementVisible(child, variables, loopContext)) return;
+                    var node = elementToNode(child, imagesDict, loopContext);
+                    if (node) {
+                        var x = child.x || 0;
+                        var y = (child.y || 0) + index * loopH;
+                        var w = getElementWidth(child);
+                        
+                        if (child.type === 'shape') {
+                            var rSize = getRotatedSize(child.width || 100, child.height || 50, child.rotate || 0);
+                            x = x - rSize.dx;
+                            y = y - rSize.dy;
+                            w = rSize.w;
+                        } else if (child.type === 'image' && child.rotate) {
+                            var rSize = getRotatedSize(getParsedWidth(child.width) || 100, child.height || 100, child.rotate || 0);
+                            x = x - rSize.dx;
+                            y = y - rSize.dy;
+                            w = rSize.w;
+                        }
+                        
+                        var wrappedNode = {
+                            columns: [
+                                {
+                                    width: w,
+                                    stack: [ node ]
+                                }
+                            ],
+                            relativePosition: { x: x, y: y }
+                        };
+                        columns = []; // clear dummy columns from outer scope to prevent potential leaks
+                        childrenLayout.push(wrappedNode);
+                    }
+                });
+            });
+            var totalH = dataArray.length * loopH;
+            return {
+                stack: [
+                    {
+                        canvas: [
+                            {
+                                type: 'rect',
+                                x: 0, y: 0,
+                                w: getParsedWidth(el.width),
+                                h: totalH,
+                                color: el.bgColor || 'transparent',
+                                lineWidth: parseFloat(el.borderWidth) || 0,
+                                lineColor: el.borderColor || 'transparent'
+                            }
+                        ]
+                    },
+                    {
+                        stack: childrenLayout,
+                        margin: [0, -totalH, 0, 0]
                     }
                 ]
             };
@@ -2722,7 +3334,10 @@ function buildDoc() {
         pageSize: pageConfig.paperSize || 'LETTER',
         pageOrientation: pageConfig.paperOrient || 'portrait',
         pageMargins: [pageConfig.marginLeft, pageConfig.marginTop, pageConfig.marginRight, pageConfig.marginBottom],
-        defaultStyle: { font: fontName },
+        defaultStyle: {
+            font: fontName,
+            fontSize: pageConfig.defaultFontSize || 13
+        },
         background: function(currentPage, pageSize) {
             return {
                 canvas: [
@@ -2755,7 +3370,7 @@ function downloadPDF() { pdfMake.createPdf(buildDoc()).download('report.pdf'); }
 function printPDF() { pdfMake.createPdf(buildDoc()).print(); }
 
 function exportJSON() {
-    var data = { elements: elements, variables: variables, paper: pageConfig.paperSize, orient: pageConfig.paperOrient, pageConfig: pageConfig };
+    var data = { elements: elements, variables: variables, pageConfig: pageConfig };
     var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -2797,13 +3412,30 @@ function handleImport(e) {
     e.target.value = '';
 }
 
+var editingElementId = null;
+
+function viewElementJSON(id, event) {
+    if (event) event.stopPropagation();
+    var el = elements.find(function(e) { return e.id === id; });
+    if (!el) return;
+    
+    editingElementId = id;
+    document.getElementById('jsonModalTitle').innerText = 'Element JSON Configuration (ID: ' + id + ')';
+    document.getElementById('jsonTextArea').value = JSON.stringify(el, null, 2);
+    document.getElementById('jsonModal').classList.add('show');
+}
+
 function viewJSON() {
-    var data = { elements: elements, variables: variables, paper: pageConfig.paperSize, orient: pageConfig.paperOrient, pageConfig: pageConfig };
+    editingElementId = null;
+    document.getElementById('jsonModalTitle').innerText = 'JSON Configuration';
+    var data = { elements: elements, variables: variables, pageConfig: pageConfig };
     document.getElementById('jsonTextArea').value = JSON.stringify(data, null, 2);
     document.getElementById('jsonModal').classList.add('show');
 }
 function closeJSONModal() {
     document.getElementById('jsonModal').classList.remove('show');
+    editingElementId = null;
+    document.getElementById('jsonModalTitle').innerText = 'JSON Configuration';
 }
 function copyJSON() {
     var txt = document.getElementById('jsonTextArea').value;
@@ -2819,6 +3451,22 @@ function copyJSON() {
 function applyJSON() {
     try {
         var data = JSON.parse(document.getElementById('jsonTextArea').value);
+        
+        if (editingElementId !== null) {
+            var idx = elements.findIndex(function(e) { return e.id === editingElementId; });
+            if (idx >= 0) {
+                // Preserve the ID of the element being edited
+                data.id = editingElementId;
+                elements[idx] = data;
+                alert('Element JSON applied successfully!');
+            }
+            closeJSONModal();
+            render();
+            renderProps();
+            renderOutline();
+            return;
+        }
+        
         if (!data.elements) {
             alert('Invalid JSON configuration: Missing "elements" field');
             return;
@@ -3354,7 +4002,17 @@ function resolveFieldValue(mapping, item, index) {
             return 'Fx Error: ' + e.message;
         }
     }
-    return item[mapping] !== undefined ? item[mapping] : '';
+    if (mapping === '$index' || mapping === '$item.index' || mapping === 'index') {
+        return index !== undefined ? index : '';
+    }
+    if (mapping.indexOf('$item.') === 0) {
+        var propName = mapping.substring(6);
+        if (propName === 'index') {
+            return index !== undefined ? index : '';
+        }
+        return (item && item[propName] !== undefined && item[propName] !== null) ? item[propName] : '';
+    }
+    return (item && item[mapping] !== undefined && item[mapping] !== null) ? item[mapping] : '';
 }
 
 // Convert HTML tags (b, i, u) in text to pdfmake rich text array

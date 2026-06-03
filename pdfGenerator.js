@@ -27,25 +27,53 @@ function isImageVal(val) {
            val.endsWith('.svg');
 }
 
-function evaluateFx(expr, data) {
+function evaluateFx(expr, data, context) {
     try {
+        var item = context ? context.$item : undefined;
+        var index = context ? context.$index : undefined;
         if (/\breturn\b/.test(expr)) {
-            var fn = new Function('$data', expr);
-            var res = fn(data);
+            var fn = new Function('$data', '$item', '$index', expr);
+            var res = fn(data, item, index);
             return res !== undefined && res !== null ? res : '';
         }
-        var fn = new Function('$data', 'return eval(arguments[1]);');
-        var res = fn(data, expr);
+        var fn = new Function('$data', '$item', '$index', 'return eval(arguments[3]);');
+        var res = fn(data, item, index, expr);
         return res !== undefined && res !== null ? res : '';
     } catch (e) {
         return 'Fx Error: ' + e.message;
     }
 }
 
-function isElementVisible(el, data) {
+function resolveVariableValue(varName, variables, context, fallbackValue) {
+    if (!varName) return '';
+    if (context) {
+        if (varName === '$index' || varName === '$item.index' || varName === 'index') {
+            return context.$index !== undefined ? context.$index : '';
+        }
+        if (varName.indexOf('$item.') === 0) {
+            var propName = varName.substring(6);
+            if (propName === 'index') {
+                return context.$index !== undefined ? context.$index : '';
+            }
+            if (context.$item && context.$item[propName] !== undefined) {
+                return context.$item[propName];
+            }
+        }
+        if (context.$item && context.$item[varName] !== undefined) {
+            return context.$item[varName];
+        }
+    }
+    if (variables && variables[varName] !== undefined) {
+        return variables[varName];
+    }
+    return fallbackValue;
+}
+
+
+function isElementVisible(el, data, context) {
     if (!el.useShowFx || !el.showFx || el.showFx.trim() === '') return true;
     try {
-        var res = evaluateFx(el.showFx, data);
+        var res = evaluateFx(el.showFx, data, context);
         if (typeof res === 'string' && res.startsWith('Fx Error:')) {
             return true;
         }
@@ -76,7 +104,17 @@ function resolveFieldValue(mapping, item, index, variables) {
             return 'Fx Error: ' + e.message;
         }
     }
-    return (item[mapping] !== undefined && item[mapping] !== null) ? item[mapping] : '';
+    if (mapping === '$index' || mapping === '$item.index' || mapping === 'index') {
+        return index !== undefined ? index : '';
+    }
+    if (mapping.indexOf('$item.') === 0) {
+        var propName = mapping.substring(6);
+        if (propName === 'index') {
+            return index !== undefined ? index : '';
+        }
+        return (item && item[propName] !== undefined && item[propName] !== null) ? item[propName] : '';
+    }
+    return (item && item[mapping] !== undefined && item[mapping] !== null) ? item[mapping] : '';
 }
 
 function getParsedWidth(widthVal, pageConfig) {
@@ -127,7 +165,7 @@ function getElementWidth(el, pageConfig) {
         }
         return getParsedWidth(el.width, pageConfig) || 500;
     }
-    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel' || el.type === 'emptyline') {
+    if (el.type === 'text' || el.type === 'var' || el.type === 'shape' || el.type === 'image' || el.type === 'panel' || el.type === 'emptyline' || el.type === 'loop') {
         var w = getParsedWidth(el.width, pageConfig) || 100;
         return (el.type === 'text' || el.type === 'var') ? Math.max(20, w) : w;
     }
@@ -140,7 +178,28 @@ function getElementWidth(el, pageConfig) {
     return 100;
 }
 
-function getElementHeight(el, variables, pageConfig) {
+function getElementHeight(el, variables, pageConfig, elements) {
+    if (el.type === 'loop') {
+        var loopH = el.height || 40;
+        var dataArray = variables[el.dataVar];
+        var count = (dataArray && Array.isArray(dataArray)) ? dataArray.length : 1;
+        return count * loopH;
+    }
+    if (el.type === 'panel') {
+        var h = el.height || 150;
+        if (elements) {
+            var children = elements.filter(function(e) { return e.parentId === el.id; });
+            children.forEach(function(child) {
+                if (!isElementVisible(child, variables)) return;
+                var childH = getElementHeight(child, variables, pageConfig, elements);
+                var childBottom = (child.y || 0) + childH;
+                if (childBottom > h) {
+                    h = childBottom;
+                }
+            });
+        }
+        return h;
+    }
     if (el.type === 'shape') {
         var rSize = getRotatedSize(el.width || 100, el.height || 50, el.rotate || 0);
         return rSize.h;
@@ -152,17 +211,22 @@ function getElementHeight(el, variables, pageConfig) {
     if (el.type === 'rect') return el.rectH || 20;
     if (el.type === 'emptyline') return parseFloat(el.height) || 20;
     if (el.type === 'line') return el.lineWeight || 1;
-    if (el.type === 'text' || el.type === 'var') return Math.ceil((el.fontSize || 13) * 1.15);
+    if (el.type === 'text' || el.type === 'var') {
+        if (el.height !== undefined && el.height !== null && el.height !== '') {
+            return parseFloat(el.height) || 20;
+        }
+        return Math.ceil((el.fontSize || 13) * 1.15);
+    }
     if (el.type === 'table') {
         var displayData = el.data || [];
         if (el.dataVar && variables && Array.isArray(variables[el.dataVar])) {
             displayData = variables[el.dataVar];
         }
         var rowsCount = displayData.length + (el.showHeader !== false ? 1 : 0);
-        return rowsCount * (el.fontSize + 8) + 10;
+        var fs = el.fontSize || (pageConfig && pageConfig.defaultFontSize) || 13;
+        return rowsCount * (fs + 8) + 10;
     }
     if (el.type === 'image') return el.height || 100;
-    if (el.type === 'panel') return el.height || 150;
     return 20;
 }
 
@@ -225,30 +289,103 @@ function parseHtmlToPdfText(str) {
     return result.length === 1 && !result[0].bold && !result[0].italics && !result[0].decoration ? result[0].text : result;
 }
 
-function elementToNode(el, imagesDict, variables, elements, pageConfig) {
+function wrapNodeWithBorder(node, el, pageConfig) {
+    var hasPadding = (parseFloat(el.paddingTop) || parseFloat(el.paddingRight) || parseFloat(el.paddingBottom) || parseFloat(el.paddingLeft));
+    var hasHeight = (el.height !== undefined && el.height !== null && el.height !== '');
+    if (!el.showBorder && !hasPadding && !hasHeight) return node;
+    
+    var bdrW = el.showBorder ? (parseFloat(el.borderWidth) || 1) : 0;
+    var bdrStyle = el.borderStyle || 'solid';
+    var bdrC = el.borderColor || '#000000';
+    
+    var tblLayout = {
+        hLineWidth: function(i) {
+            if (!el.showBorder) return 0;
+            if (i === 0) return (el.borderTop !== false) ? bdrW : 0;
+            if (i === 1) return (el.borderBottom !== false) ? bdrW : 0;
+            return 0;
+        },
+        vLineWidth: function(i) {
+            if (!el.showBorder) return 0;
+            if (i === 0) return (el.borderLeft !== false) ? bdrW : 0;
+            if (i === 1) return (el.borderRight !== false) ? bdrW : 0;
+            return 0;
+        },
+        hLineColor: function() { return bdrC; },
+        vLineColor: function() { return bdrC; },
+        hLineStyle: function() {
+            if (bdrStyle === 'solid') return null;
+            if (bdrStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+            if (bdrStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+            return null;
+        },
+        vLineStyle: function() {
+            if (bdrStyle === 'solid') return null;
+            if (bdrStyle === 'dashed') return { dash: { length: 4, space: 2 } };
+            if (bdrStyle === 'dotted') return { dash: { length: 1, space: 2 } };
+            return null;
+        },
+        paddingLeft: function() { return parseFloat(el.paddingLeft) || 0; },
+        paddingRight: function() { return parseFloat(el.paddingRight) || 0; },
+        paddingTop: function() { return parseFloat(el.paddingTop) || 0; },
+        paddingBottom: function() { return parseFloat(el.paddingBottom) || 0; }
+    };
+    
+    var w = getParsedWidth(el.width, pageConfig);
+    var borderLeftW = (el.showBorder && el.borderLeft !== false) ? bdrW : 0;
+    var borderRightW = (el.showBorder && el.borderRight !== false) ? bdrW : 0;
+    var insideW = w - borderLeftW - borderRightW - (parseFloat(el.paddingLeft) || 0) - (parseFloat(el.paddingRight) || 0);
+    
+    var cell = Object.assign({}, node);
+    
+    var tbl = {
+        table: {
+            widths: [Math.max(1, insideW)],
+            body: [
+                [
+                    cell
+                ]
+            ]
+        },
+        layout: tblLayout
+    };
+    
+    if (hasHeight) {
+        var borderTopW = (el.showBorder && el.borderTop !== false) ? bdrW : 0;
+        var borderBottomW = (el.showBorder && el.borderBottom !== false) ? bdrW : 0;
+        var insideH = parseFloat(el.height) - borderTopW - borderBottomW;
+        tbl.table.heights = [Math.max(1, insideH)];
+    }
+    
+    return tbl;
+}
+
+function elementToNode(el, imagesDict, variables, elements, pageConfig, context) {
     switch(el.type) {
         case 'text':
             var displayText = el.text;
             if (el.isFx) {
-                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+                displayText = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '';
             }
             if (displayText === null || displayText === undefined) {
                 displayText = '';
             }
             var textColor = el.color;
             if (el.isColorFx && el.colorFx) {
-                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                 if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            var textNode = { text: parseHtmlToPdfText(displayText), fontSize: el.fontSize || undefined, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width, pageConfig), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            return wrapNodeWithBorder(textNode, el, pageConfig);
         case 'var':
             var displayVal = '';
             if (el.isFx) {
-                displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables) : '';
+                displayVal = el.fxExpr ? evaluateFx(el.fxExpr, variables, context) : '';
             } else {
-                displayVal = (variables[el.varName] !== undefined && variables[el.varName] !== null) ? variables[el.varName] : '';
+                var resolved = resolveVariableValue(el.varName, variables, context, undefined);
+                displayVal = (resolved !== undefined && resolved !== null) ? resolved : '';
             }
             if (displayVal === null || displayVal === undefined) {
                 displayVal = '';
@@ -256,12 +393,13 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             var val = (el.prefix||'') + displayVal;
             var textColor = el.color || '#000000';
             if (el.isColorFx && el.colorFx) {
-                var evaluatedColor = evaluateFx(el.colorFx, variables);
+                var evaluatedColor = evaluateFx(el.colorFx, variables, context);
                 if (evaluatedColor && !evaluatedColor.startsWith('Fx Error:')) {
                     textColor = evaluatedColor;
                 }
             }
-            return { text: parseHtmlToPdfText(val), fontSize: el.fontSize, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: el.width, noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            var varNode = { text: parseHtmlToPdfText(val), fontSize: el.fontSize || undefined, bold: el.bold, italics: el.italic, alignment: el.align, color: textColor, width: getParsedWidth(el.width, pageConfig), noWrap: el.wrap === false ? true : undefined, font: getElementEffectiveFont(el.font) };
+            return wrapNodeWithBorder(varNode, el, pageConfig);
         case 'line':
             return { canvas: [{ type:'line', x1:0, y1:0, x2:getParsedWidth(el.lineWidth, pageConfig), y2:0, lineWidth:parseFloat(el.lineWeight) || 1, lineColor:el.color }] };
         case 'emptyline':
@@ -394,6 +532,21 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                 }
                 body.push(safeRow);
             });
+            if (body.length === 0) {
+                var dummyRow = [];
+                for (var i = 0; i < widths.length; i++) {
+                    dummyRow.push({
+                        text: '',
+                        alignment: pdfBAligns[i] || pdfBAligns[0] || 'left',
+                        bold: el.bold || false,
+                        italics: el.italic || false,
+                        fillColor: undefined,
+                        color: el.color || '#000000',
+                        border: cellBorder
+                    });
+                }
+                body.push(dummyRow);
+            }
             var tblLayout = {
                 hLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
                 vLineWidth: function() { return el.showBorder ? (el.borderWidth||1) : 0; },
@@ -424,12 +577,15 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     return (el.paddingBottom !== undefined && el.paddingBottom !== '') ? parseFloat(el.paddingBottom) : 4;
                 }
             };
-            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
+            return { table: { headerRows: showH ? 1 : 0, widths: widths, body: body }, layout: tblLayout, fontSize: el.fontSize || undefined, color: el.color||'#000', font: getElementEffectiveFont(el.font) };
         case 'image':
             if (el.imageSrc) {
                 var src = el.imageSrc;
-                if (el.dataVar && variables[el.dataVar]) {
-                    src = variables[el.dataVar];
+                if (el.dataVar) {
+                    var resolved = resolveVariableValue(el.dataVar, variables, context, undefined);
+                    if (resolved !== undefined && resolved !== null) {
+                        src = resolved;
+                    }
                 }
                 var imgW = getParsedWidth(el.width, pageConfig);
                 var imgH = parseFloat(el.height) || 100;
@@ -472,8 +628,8 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
             var children = elements.filter(function(e) { return e.parentId === el.id; });
             var childrenLayout = [];
             children.forEach(function(child) {
-                if (!isElementVisible(child, variables)) return;
-                var node = elementToNode(child, imagesDict, variables, elements, pageConfig);
+                if (!isElementVisible(child, variables, context)) return;
+                var node = elementToNode(child, imagesDict, variables, elements, pageConfig, context);
                 if (node) {
                     var x = child.x || 0;
                     var y = child.y || 0;
@@ -525,6 +681,71 @@ function elementToNode(el, imagesDict, variables, elements, pageConfig) {
                     }
                 ]
             };
+        case 'loop':
+            var children = elements.filter(function(e) { return e.parentId === el.id; });
+            var dataArray = variables[el.dataVar];
+            if (!dataArray || !Array.isArray(dataArray)) {
+                dataArray = [{}];
+            }
+            var loopH = parseFloat(el.height) || 40;
+            var childrenLayout = [];
+            dataArray.forEach(function(item, index) {
+                var loopContext = { $item: item, $index: index };
+                children.forEach(function(child) {
+                    if (!isElementVisible(child, variables, loopContext)) return;
+                    var node = elementToNode(child, imagesDict, variables, elements, pageConfig, loopContext);
+                    if (node) {
+                        var x = child.x || 0;
+                        var y = (child.y || 0) + index * loopH;
+                        var w = getElementWidth(child, pageConfig);
+                        
+                        if (child.type === 'shape') {
+                            var rSize = getRotatedSize(child.width || 100, child.height || 50, child.rotate || 0);
+                            x = x - rSize.dx;
+                            y = y - rSize.dy;
+                            w = rSize.w;
+                        } else if (child.type === 'image' && child.rotate) {
+                            var rSize = getRotatedSize(getParsedWidth(child.width, pageConfig) || 100, child.height || 100, child.rotate || 0);
+                            x = x - rSize.dx;
+                            y = y - rSize.dy;
+                            w = rSize.w;
+                        }
+                        
+                        var wrappedNode = {
+                            columns: [
+                                {
+                                    width: w,
+                                    stack: [ node ]
+                                }
+                            ],
+                            relativePosition: { x: x, y: y }
+                        };
+                        childrenLayout.push(wrappedNode);
+                    }
+                });
+            });
+            var totalH = dataArray.length * loopH;
+            return {
+                stack: [
+                    {
+                        canvas: [
+                            {
+                                type: 'rect',
+                                x: 0, y: 0,
+                                w: getParsedWidth(el.width, pageConfig),
+                                h: totalH,
+                                color: el.bgColor || 'transparent',
+                                lineWidth: parseFloat(el.borderWidth) || 0,
+                                lineColor: el.borderColor || 'transparent'
+                            }
+                        ]
+                    },
+                    {
+                        stack: childrenLayout,
+                        margin: [0, -totalH, 0, 0]
+                    }
+                ]
+            };
     }
     return null;
 }
@@ -542,8 +763,8 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         return (intersection / minW) > 0.5;
     }
     function verticalOverlap(el1, el2) {
-        var h1 = getElementHeight(el1, variables, pageConfig);
-        var h2 = getElementHeight(el2, variables, pageConfig);
+        var h1 = getElementHeight(el1, variables, pageConfig, elements);
+        var h2 = getElementHeight(el2, variables, pageConfig, elements);
         var y1 = el1.y;
         var y2 = el2.y;
         var intersection = Math.min(y1 + h1, y2 + h2) - Math.max(y1, y2);
@@ -678,7 +899,7 @@ function buildLayout(elementsList, baseMarginLeft, baseMarginTop, imagesDict, pa
         });
 
         row.forEach(function(el) {
-            var elHeight = getElementHeight(el, variables, pageConfig);
+            var elHeight = getElementHeight(el, variables, pageConfig, elements);
             var elOffsetY = el.y - currentRowTop;
             var elBottom = absoluteRowTop + elOffsetY + elHeight;
             renderedElements.push({ el: el, absoluteRenderedBottom: elBottom });
@@ -825,6 +1046,7 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
         marginRight: 20,
         marginBottom: 20,
         defaultFont: 'Roboto',
+        defaultFontSize: 13,
         paperSize: 'LETTER',
         paperOrient: 'portrait'
     };
@@ -902,7 +1124,10 @@ export function buildDocDefinition(templateJson, dynamicVariables) {
         pageSize: pageConfig.paperSize || 'LETTER',
         pageOrientation: pageConfig.paperOrient || 'portrait',
         pageMargins: [pageConfig.marginLeft, pageConfig.marginTop, pageConfig.marginRight, pageConfig.marginBottom],
-        defaultStyle: { font: fontName },
+        defaultStyle: {
+            font: fontName,
+            fontSize: pageConfig.defaultFontSize || 13
+        },
         background: function(currentPage, pageSize) {
             return {
                 canvas: [

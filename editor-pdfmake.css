@@ -383,4 +383,42 @@ body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; background: 
     color: #89b4fa;
 }
 
+/* Drag and Drop elements outline insertion line indicator */
+.outline-item.drag-insert-top {
+    position: relative;
+    border-color: #89b4fa !important;
+}
+.outline-item.drag-insert-top::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background-color: #89b4fa;
+    border-radius: 2px;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 0 6px rgba(137, 180, 250, 0.9);
+}
+
+.outline-item.drag-insert-bottom {
+    position: relative;
+    border-color: #89b4fa !important;
+}
+.outline-item.drag-insert-bottom::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background-color: #89b4fa;
+    border-radius: 2px;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 0 6px rgba(137, 180, 250, 0.9);
+}
+
+
 
